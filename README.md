@@ -103,7 +103,7 @@ See [NOTICE](NOTICE) for third-party code, device payloads and firmware.
 
 I'm trying a new way of accepting contributions on this repository, because the
 variance in pull requests based on people's ability to prompt, review, and even
-the model they're using generates a dramatic review burden. Instead.
+the model they're using generates a dramatic review burden. Instead:
 
 **If you want to contribute to this, you should open an issue and concisely describe
 the problem you're running into, and the feature you want to add or bug you want
