@@ -353,6 +353,21 @@ set_flag() {
  owner_pkg "$option" -t app -n "$app" --global || return 1
  [[ $(flag "$app") == "$desired" ]]
 }
+managed_runtime() {
+ case "$1" in /usr/bin/dotnet-loader|/usr/bin/dotnet-launcher-inhouse|*/dotnet|*/apphost|*/CoreRuntime*) return 0;; esac
+ return 1
+}
+matches_process() {
+ local pid=$1 expected=$2 actual argument
+ actual=$(readlink "/proc/$pid/exe" 2>/dev/null) || return 1
+ [[ $actual == "$expected" ]] && return 0
+ [[ $expected == *.dll ]] && managed_runtime "$actual" || return 1
+ # Tizen can put the selected DLL in argv[0]; the shared launcher alone is insufficient.
+ while IFS= read -r -d '' argument; do
+  [[ $argument == "$expected" ]] && return 0
+ done < "/proc/$pid/cmdline"
+ return 1
+}
 query_pid() {
  local app=$1 state output pid
  state=$(app_launcher -r "$app" -u 5001 2>&1) || true
@@ -371,12 +386,10 @@ verify_absent() {
   exe=$(readlink "$proc/exe" 2>/dev/null) || continue
   if grep -Fxq -- "$exe" "$stage/expected-paths"; then
    echo "SURVIVING PROCESS ${proc##*/} $exe"; found=1
-  else
-   case "$exe" in */dotnet|*/apphost|*/CoreRuntime*)
-    while IFS= read -r -d '' argument; do
-     if grep -Fxq -- "$argument" "$stage/expected-paths"; then echo "SURVIVING MANAGED APP ${proc##*/} $argument"; found=1; fi
-    done < "$proc/cmdline";;
-   esac
+  elif managed_runtime "$exe"; then
+   while IFS= read -r -d '' argument; do
+    if grep -Fxq -- "$argument" "$stage/expected-paths"; then echo "SURVIVING MANAGED APP ${proc##*/} $argument"; found=1; fi
+   done < "$proc/cmdline"
   fi
  done
  [[ $found == 0 ]]
@@ -450,7 +463,7 @@ while read -r app; do
  pid=$(query_pid "$app") || fail "Cannot query PID: $app"
  exe=$(sqlite3 -readonly "$DB" "SELECT app_exec FROM package_app_info WHERE app_id='$app';")
  [[ $exe == /* && $exe != *$'\t'* && $exe != *$'\n'* ]] || fail 'Invalid executable'
- if (( pid > 0 )); then [[ $(readlink "/proc/$pid/exe") == "$exe" ]] || fail "Unexpected running executable: $app"; fi
+ if (( pid > 0 )); then matches_process "$pid" "$exe" || fail "Unexpected running executable: $app"; fi
  before_rows+="$app"$'\tfalse\t'"$pid"$'\t'"$exe"$'\n'
 done < <(apps)
 mkdir -m 700 "$STATE"
@@ -461,14 +474,14 @@ while IFS=$'\t' read -r app before pid exe; do
  set_flag "$app" true || fail "Disable failed: $app"
 done < "$STATE/before.tsv"
 while IFS=$'\t' read -r app before pid exe; do
- if (( pid > 0 )) && [[ $(readlink "/proc/$pid/exe" 2>/dev/null || true) == "$exe" ]]; then
+ if (( pid > 0 )) && matches_process "$pid" "$exe"; then
   echo "STOPPING $app PID=$pid"
   aul_test term_pid_without_restart "$pid" || true
  fi
 done < "$STATE/before.tsv"
 sleep 3
 while IFS=$'\t' read -r app before pid exe; do
- if (( pid > 0 )) && [[ $(readlink "/proc/$pid/exe" 2>/dev/null || true) == "$exe" ]]; then
+ if (( pid > 0 )) && matches_process "$pid" "$exe"; then
   echo "TERM $app PID=$pid"
   kill -TERM "$pid" || fail "Termination failed: $app"
  fi
