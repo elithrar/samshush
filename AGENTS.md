@@ -178,6 +178,11 @@ user-facing README synchronized when behavior changes.
 Check native flags, exact executable identity/process absence, service/path/socket/
 bus/timer activation, direct app launches and applicable capture controls separately.
 A stopped unit is insufficient when the app manager can start the executable.
+For built-in .NET apps, process checks require a recognized launcher and an exact
+selected DLL argument, including when Tizen places it in argument zero. Never
+identify a selected app by its shared launcher alone. Host tests cover apply,
+surviving-process status, changed PID identity and rollback; these checks do not
+establish live capture denial or support for other TV builds.
 
 Audit TV hardware microphones, AOV/standby, far-field engines, Smart Remote,
 Bluetooth/HFP, soundbar passthrough, USB, browser, virtual inputs and HAL/DSP routes.

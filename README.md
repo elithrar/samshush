@@ -60,7 +60,7 @@ Optional controls still require the owner’s approval on other installations.
 
 | Service or feature | Control or recommendation | What we found and why |
 | --- | --- | --- |
-| Bixby, Alexa and voice recognition | Selected apps disabled | Separate apps handle assistants, speech recognition and wake words. Native app blocks prevent these apps from launching. |
+| Bixby, Alexa and voice recognition | Selected apps disabled | Native app blocks prevent selected assistants, speech recognition and wake-word apps from launching. Verification also checks for surviving built-in .NET apps that use a shared launcher. |
 | Always-on voice and far-field listening | Selected services disabled | Dedicated services support voice activation, including standby paths. Disabling the visible assistant alone does not cover them. |
 | Virtual microphones, Bluetooth HFP and soundbar voice passthrough | Selected services disabled | These add microphone inputs beyond the TV’s built-in mic. Blocking them can remove hands-free features. Keep normal Bluetooth and audio output services. |
 | SmartThings and SmartThings Find | Selected integrations disabled | Samshush blocks the selected client, plugin, hub and Find apps and the IoT hub startup paths. The shared sensor service stays enabled for light sync. |
