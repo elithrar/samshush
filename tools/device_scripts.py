@@ -72,6 +72,21 @@ processes() { cat <<'PROCESSES'
 @@PROCESSES@@
 PROCESSES
 }
+# /proc/PID/exe has no target for kernel threads and fully exited processes.
+# A zombie leader can still have live threads, so require a single thread.
+# Field 9 is flags (PF_KTHREAD=0x00200000); field 20 is the thread count.
+no_userspace_executable() {
+    local record
+    local -a fields=()
+    record=$(cat "$1/stat" 2>/dev/null) || return 1
+    [[ $record == *") "* ]] || return 1
+    # comm can contain spaces and parentheses; fields follow its final ')'.
+    read -r -a fields <<< "${record##*) }"
+    (( ${#fields[@]} >= 18 )) || return 1
+    [[ ${fields[6]} =~ ^[0-9]+$ && ${fields[17]} =~ ^[0-9]+$ ]] || return 1
+    (( (10#${fields[6]} & 0x00200000) != 0 )) && return 0
+    [[ ( ${fields[0]} == Z || ${fields[0]} == X ) && ${fields[17]} == 1 ]]
+}
 check_processes() {
     local expected canonical proc actual found=0
     local -a targets=()
@@ -85,9 +100,9 @@ check_processes() {
     [[ ${1-} != paths-only ]] || return 0
     for proc in /proc/[0-9]*; do
         if ! actual=$(readlink "$proc/exe" 2>/dev/null); then
-            if [[ -L $proc/exe ]]; then
-                echo "PROCESS IDENTITY UNAVAILABLE ${proc##*/}" >&2; found=1
-            fi
+            [[ ! -d $proc ]] && continue
+            no_userspace_executable "$proc" && continue
+            echo "PROCESS IDENTITY UNAVAILABLE ${proc##*/}" >&2; found=1
             continue
         fi
         for expected in "${targets[@]}"; do

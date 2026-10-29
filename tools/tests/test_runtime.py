@@ -141,6 +141,52 @@ class RuntimeTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("SURVIVING SERVICE PROCESS 456", result.stdout)
 
+    def test_processes_without_executable_require_positive_exit_or_kernel_evidence(
+        self,
+    ):
+        helper = self.root / "helper"
+        helper.write_text("binary fixture")
+        self.test_processes = str(helper)
+        proc = self.root / "proc/123"
+        proc.mkdir(parents=True)
+        # A regular fixture makes readlink fail without treating a missing
+        # executable as evidence that the process has exited.
+        (proc / "exe").write_text("unreadable executable link")
+        cases = [
+            ("kernel", "S", 0x00200040, 1, True),
+            ("zombie", "Z", 0x00400100, 1, True),
+            ("dead", "X", 0x00400100, 1, True),
+            ("live userspace", "S", 0x00400100, 1, False),
+            ("zombie leader with live threads", "Z", 0x00400100, 2, False),
+        ]
+        for name, state, flags, threads, succeeds in cases:
+            with self.subTest(name=name):
+                fields = [state] + ["0"] * 17
+                fields[6], fields[17] = str(flags), str(threads)
+                (proc / "stat").write_text(
+                    "123 (name with ) parentheses) " + " ".join(fields) + "\n"
+                )
+                result = self.run_action("apply", "services")
+                self.assertEqual(result.returncode == 0, succeeds, result.stderr)
+                if succeeds:
+                    self.assertEqual(
+                        self.run_action("status", "services").returncode, 0
+                    )
+                    self.assertEqual(self.run_action("restore").returncode, 0)
+                else:
+                    self.assertIn("PROCESS IDENTITY UNAVAILABLE 123", result.stderr)
+                self.assert_original()
+        for metadata in [None, "malformed", "123 (name) S 0 0 0 0 0 bad"]:
+            with self.subTest(metadata=metadata):
+                if metadata is None:
+                    (proc / "stat").unlink()
+                else:
+                    (proc / "stat").write_text(metadata)
+                result = self.run_action("apply", "services")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("PROCESS IDENTITY UNAVAILABLE 123", result.stderr)
+                self.assert_original()
+
     def test_unavailable_helper_path_is_not_verified_absent(self):
         self.test_processes = str(self.root / "missing")
         result = self.run_action("apply", "services")

@@ -166,12 +166,17 @@ New independent groups preserve the deployed group lists and recovery journals:
 - `voice-launchers`: Alexa's separate jump-starter native ID. Do not rewrite the
   completed 25-app voice journal to add this registration.
 
-These groups are prepared from exact-build static evidence; live apply/restore
-and retained-feature validation must be reported separately. Apply each app group
-before its runtime group. Native helper checks reject missing executable paths
+The first four groups passed live apply and selected-process checks on the supported
+TV. Visual-analysis rollback also restored its previously running managers. The
+Alexa jump-starter registration was absent, so voice-launchers was not applied.
+Full restore, retained-feature and fresh reboot validation remain separate. Apply
+each app group before its runtime group. Native helper checks reject missing executable paths
 before mutation and reject surviving helpers after stopping the manager, invoking
 the existing journaled rollback. Runtime status checks selected native helpers as
-well as masks. Managed app verification stays in the native-app command.
+well as masks. Unreadable executable links are accepted only for vanished tasks,
+confirmed kernel threads or fully exited single-thread processes; unreadable live
+userspace identities fail verification. Managed app verification stays in the
+native-app command.
 
 Before extending automatic boot reapplication, verify its current status, remove
 the installed hook, apply/verify the new groups, reinstall and run the startup

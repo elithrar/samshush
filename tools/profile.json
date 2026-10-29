@@ -332,7 +332,7 @@
       ],
       "purpose": "Stop the separate visual-analysis managers and verify their native helpers are absent.",
       "tradeoffs": "Disables food/text discovery and subtitle recognition/accessibility functions. Normal subtitles, HDMI and manual Art require retained-feature checks. Does not prohibit other processes from reading model files.",
-      "validation": "Prepared from exact-build firmware; live apply and restore pending."
+      "validation": "Live apply, selected-process absence and automatic rollback/restart verified on the supported TV. Retained-feature and fresh reboot checks remain separate."
     },
     "gaming-backend": {
       "application_ids": [
@@ -345,7 +345,7 @@
       ],
       "purpose": "Block Gaming Hub backend app registrations and startup paths separately from existing frontend blocks.",
       "tradeoffs": "Gaming Hub services unavailable. Preserve Game Mode, Game Bar, HDMI ALLM/VRR and gamepad drivers.",
-      "validation": "Prepared from exact-build firmware; live apply and restore pending."
+      "validation": "Live apply, mask/flag readback and selected-process checks passed on the supported TV. Retained-feature and fresh reboot checks remain separate; full restore not exercised."
     },
     "remote-support": {
       "application_ids": [],
@@ -361,7 +361,7 @@
       ],
       "purpose": "Stop optional remote-support and retail-management daemons, including their systemd-backed D-Bus activation.",
       "tradeoffs": "Vendor remote support and remote shop management unavailable. Keep Maintenance Mode backup/restore, owner SDB and core remote navigation.",
-      "validation": "Prepared from exact-build firmware; live apply and restore pending."
+      "validation": "Live apply, mask readback and selected-process checks passed on the supported TV. Retained-feature and fresh reboot checks remain separate; full restore not exercised."
     },
     "remote-pc": {
       "application_ids": [
@@ -372,7 +372,7 @@
       ],
       "purpose": "Block the Remote PC launcher and its separate service while retaining zone isolation and the shared browser.",
       "tradeoffs": "Remote PC unavailable. This control is not a finding that this firmware is vulnerable.",
-      "validation": "Prepared from exact-build firmware; live apply and restore pending.",
+      "validation": "Live apply, mask/flag readback and selected-process checks passed on the supported TV. Retained-feature and fresh reboot checks remain separate; full restore not exercised.",
       "process_paths": [
         "/opt/usr/apps/org.tizen.remotepc/bin/remotepc_manager"
       ]
@@ -384,7 +384,7 @@
       "systemd_units": [],
       "purpose": "Block the separately registered Alexa startup app without changing the deployed voice journal.",
       "tradeoffs": "Alexa startup unavailable. Does not establish complete microphone capture denial.",
-      "validation": "Prepared from exact-build firmware; live apply and restore pending."
+      "validation": "Present in extracted firmware but absent from the tested TV app registry; not applied. Verify registration before use."
     }
   },
   "verified_optional_controls": {
