@@ -66,14 +66,19 @@ Optional controls still require the owner’s approval on other installations.
 | SmartThings and SmartThings Find | Selected integrations disabled | Samshush blocks the selected client, plugin, hub and Find apps and the IoT hub startup paths. The shared sensor service stays enabled for light sync. |
 | SmartThings Sound Sensor / Pet Care | Sound sensing settings off | SmartThings can trigger events from sound, including in standby. The shared sensor service also handles light sync, so keep it enabled. |
 | Ambient sound and ultrasonic Art presence | Disabled | `ambient-sound` uses the microphone for sound and presence detection. Blocking it removes automatic presence detection. Manual Art Mode still works. |
-| Wi-Fi presence | Disabled | Samshush blocks the LAN-presence service and its startup path. Normal Wi-Fi and networking stay enabled. |
+| Wi-Fi presence | Selected service disabled | The LAN-presence service and startup path are blocked. Separate Wi-Fi motion, user-presence and awareness services remain under investigation; this is not a block on all presence sensing. |
 | Viewing Information Services | Manual opt-out recommended | Viewing-data consent is separate from voice settings. Turn it off in the TV’s privacy settings. |
 | Content analysis and iACR | Kept enabled | Content analysis handles logo recognition and HDMI auto-detection. iACR provides playback controls. Disabling these can break useful input features. |
 | Screen-based game/app recognition | Disabled | The detector requests 960×540 frames at a configured 2.5-second interval, then feeds a 64×64 image into an INT8 model. Samshush blocks the recognition launcher and UI-image detector. |
+| Visual analysis and subtitle recognition | Separate optional control prepared | The screen-analysis and cognition managers sit outside the existing game/app recognition block. Disabling them removes food/text discovery and subtitle recognition; ordinary subtitles and accessibility need separate checks. |
 | Advertising and usage analytics | Selected components disabled | Samshush blocks Adagent, targeted-ad, CoBA ads and the selected analytics and diagnostic-reporting services. Other apps may still send telemetry. |
 | TV Plus, Gaming Hub and Samsung Health | Selected apps disabled | Samshush blocks the selected apps and Health startup paths. Shared TV Plus broadcast and channel services stay enabled. |
 | PISA shared framework | Kept enabled | PISA schedules account-consent and customization services as well as ads. Block its separate adagent app to preserve those other functions. |
-| Remote Management | Recommend off unless needed for support | The support daemon includes packet-dump capability. That is a reason to limit remote support, not evidence of continuous packet capture. |
+| Remote support and shop management | Separate optional control prepared | Remote Management, Easy Support and Shop Care have independent activation paths. Disable them if unused; keep Maintenance Mode backup/restore and owner maintenance access. |
+| Remote PC | Separate optional control prepared | Disable the Remote PC app and service if Workspace is unused. Keep its sandbox and the shared browser. This is not a vulnerability finding. |
+| Gaming Hub backends and Alexa startup | Separate optional controls prepared | Gaming Hub has two backend apps, and Alexa has a separately registered startup app. Existing frontend or assistant blocks do not cover these exact registrations. |
+| Context-aware data collection | Kept enabled pending investigation | The context-aware service requires a collector service. Its consumers, consent checks and outgoing data need tracing before changing shared functionality. |
+| App and model delivery | Audit separately | Firmware Auto Update does not control every app/model installer. Preserve manual firmware updates, DRM provisioning and shared package tools while examining specific download paths. |
 | HDMI-CEC / Anynet+ and ARC/eARC | Kept enabled | CEC handles device power and remote commands. ARC/eARC sends audio to the soundbar. |
 | eMudhra / emSign trust roots | Four selected roots removed | Samshush filters these roots from 11 certificate files and leaves other certificates intact. Embedded app trust stores and cached certificates are unaffected. |
 | Automatic firmware updates | Auto Update off; update manually | Check compatibility before installing firmware. An update can reset the changes or patch the root exploit. |
@@ -83,6 +88,13 @@ Apps are disabled, not uninstalled. Apple TV playback, the sidebar, input select
 and soundbar volume still work on the tested TV. This doesn’t cover every microphone
 input or telemetry source. See [AGENTS.md](AGENTS.md#prove-the-outcome) for test
 coverage and remaining gaps.
+
+The new optional groups are `visual-analysis`, `gaming-backend`, `remote-support`,
+`remote-pc` and `voice-launchers`. They are prepared from the supported firmware;
+live deployment is recorded separately from host tests. Each has its own recovery
+journal. `service-audit` reads current services, app registrations and process
+identities without launching apps or capturing media. For groups with native
+helper checks, apply rolls back if a helper survives the manager shutdown.
 
 ## Development
 

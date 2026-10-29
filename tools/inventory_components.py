@@ -22,6 +22,35 @@ def sha(p):
     return hashlib.sha256(p.read_bytes()).hexdigest()
 
 
+def directives(text):
+    result, section, pending, start = [], "", "", 0
+    for number, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith(("#", ";")):
+            continue
+        if not pending:
+            start = number
+        if line.endswith("\\"):
+            pending += line[:-1] + " "
+            continue
+        line, pending = pending + line, ""
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1]
+        elif line and not line.startswith(("#", ";")) and "=" in line:
+            key, value = line.split("=", 1)
+            result.append(
+                {
+                    "section": section,
+                    "key": key.strip(),
+                    "value": value.strip(),
+                    "line": start,
+                }
+            )
+    if pending:
+        raise ValueError("Unterminated unit continuation")
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--firmware-root", type=Path, default=BASE)
@@ -30,81 +59,115 @@ def main():
     )
     args = parser.parse_args()
     base_path = args.firmware_root.resolve()
-    platform, data = base_path / "pltf_t/root", base_path / "data_backup/root"
-    if not platform.is_dir() or not data.is_dir():
-        parser.error("Platform and factory-data filesystem extractions are required")
+    if not base_path.is_dir():
+        parser.error("Firmware root must be an existing directory")
+    families = (
+        [base_path]
+        if (base_path / "pltf_t/root").is_dir()
+        else sorted(
+            p
+            for p in base_path.iterdir()
+            if p.is_dir() and (p / "pltf_t/root").is_dir()
+        )
+    )
+    if not families:
+        parser.error(
+            "An extracted firmware family or directory of families is required"
+        )
+    primary = next((p for p in families if p.name == "T-RSMFAKUC-0090"), families[0])
+    platform, data = primary / "pltf_t/root", primary / "data_backup/root"
     args.output.mkdir(parents=True, exist_ok=True)
     units = []
-    for base in [
-        platform / "usr/lib/systemd",
-        platform / "etc/systemd",
-        data / "usr/share/systemd",
-        data / "share/systemd",
-    ]:
-        if not base.exists():
-            continue
-        for p in sorted(base.rglob("*")):
+    manifests = []
+    for family in families:
+        for p in sorted(family.rglob("*")):
             if not p.is_file():
                 continue
-            row = {"path": relative(p), "name": p.name, "sha256": sha(p)}
+            name = p.relative_to(family).as_posix()
+            if p.suffix == ".xml" and "/share/packages/" in name:
+                manifests.append((family.name, p))
+            unit_suffixes = {
+                ".service",
+                ".socket",
+                ".path",
+                ".timer",
+                ".target",
+                ".mount",
+                ".automount",
+                ".swap",
+                ".slice",
+                ".scope",
+                ".busname",
+                ".conf",
+                ".preset",
+            }
+            if not (
+                p.suffix == ".service"
+                or (
+                    "/systemd/" in name
+                    and (
+                        p.suffix in unit_suffixes or p.name.endswith(".symlink-target")
+                    )
+                )
+            ):
+                continue
+            row = {
+                "path": relative(p),
+                "name": p.name,
+                "sha256": sha(p),
+                "family": family.name,
+            }
             text = p.read_text(errors="replace")
             if p.name.endswith(".symlink-target"):
                 row["link_target"] = text
             else:
-                section = ""
-                row["directives"] = []
-                for number, raw in enumerate(text.splitlines(), 1):
-                    line = raw.strip()
-                    if line.startswith("[") and line.endswith("]"):
-                        section = line[1:-1]
-                    elif line and not line.startswith(("#", ";")) and "=" in line:
-                        key, value = line.split("=", 1)
-                        row["directives"].append(
-                            {
-                                "section": section,
-                                "key": key.strip(),
-                                "value": value.strip(),
-                                "line": number,
-                            }
-                        )
+                row["directives"] = directives(text)
+                row["activation_kind"] = (
+                    "dbus"
+                    if any(d["section"] == "D-BUS Service" for d in row["directives"])
+                    else "systemd"
+                    if "/systemd/" in name
+                    else "bundled-definition"
+                )
             units.append(row)
 
     packages = []
-    for base in [platform / "usr/share/packages", data / "share/packages"]:
-        for p in sorted(base.glob("*.xml")):
-            try:
-                root = ET.parse(p).getroot()
-            except ET.ParseError as error:
-                raise ValueError(f"Invalid package XML: {p}") from error
-            apps = []
-            dependencies = []
-            for node in root.iter():
-                kind = node.tag.split("}")[-1]
-                if kind in ("ui-application", "service-application"):
-                    apps.append(dict(node.attrib))
-                if kind == "dependency":
-                    dependencies.append(
-                        {
-                            "kind": "dependency",
-                            **node.attrib,
-                            "value": (node.text or "").strip(),
-                        }
-                    )
-                if kind == "requires":
-                    dependencies.extend({"kind": "requires", **n.attrib} for n in node)
-            packages.append(
-                {
-                    "path": relative(p),
-                    "sha256": sha(p),
-                    **root.attrib,
-                    "applications": apps,
-                    "dependencies": dependencies,
-                }
-            )
+    for family, p in manifests:
+        try:
+            root = ET.parse(p).getroot()
+        except ET.ParseError as error:
+            raise ValueError(f"Invalid package XML: {p}") from error
+        apps = []
+        dependencies = []
+        for node in root.iter():
+            kind = node.tag.split("}")[-1]
+            if kind in ("ui-application", "service-application"):
+                apps.append({"kind": kind, **node.attrib})
+            if kind == "dependency":
+                dependencies.append(
+                    {
+                        "kind": "dependency",
+                        **node.attrib,
+                        "value": (node.text or "").strip(),
+                    }
+                )
+            if kind == "requires":
+                dependencies.extend({"kind": "requires", **n.attrib} for n in node)
+        packages.append(
+            {
+                "family": family,
+                "path": relative(p),
+                "sha256": sha(p),
+                **root.attrib,
+                "applications": apps,
+                "dependencies": dependencies,
+            }
+        )
 
     inventory = {
-        "firmware": "T-RSMFAKUC-0090 1301.0",
-        "scope": "Offline static evidence; presence does not prove enabled or installed on the TV",
+        "firmware": primary.name,
+        "families": [p.name for p in families],
+        "scope": "Offline source declarations, including product partitions, zones, D-Bus and bundled definitions. Duplicate contexts remain separate; presence does not prove installation or activity. References are not resolved runtime dependencies.",
         "units_and_links": units,
         "packages": packages,
     }
@@ -143,6 +206,8 @@ def main():
     ]
     for name in selected:
         p = platform / "usr/lib/systemd/system" / name
+        if not p.is_file():
+            continue
         lines += ["## " + name, "", f"`{relative(p)}`", "", "```ini"]
         lines += [
             f"{i}: {line}"

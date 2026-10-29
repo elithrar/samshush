@@ -73,9 +73,10 @@ and device identifiers; do not publish them in a Gist or commit them.
 | `hdmi-audit` | Read Anynet+/CEC settings and connected-device metadata; sends no power or input-switch commands. |
 | `privacy-audit` | Read SmartThings sensor app flags, two known sound settings, Wi-Fi/ACR units and dependencies; does not change settings or launch apps. |
 | `voice-audit` | Inspect processes and capture metadata; does not record audio. |
+| `service-audit` | Read all system service/unit-file listings, profile and investigation dependencies, app registrations, native/managed process identities and selected presence settings. No app launch, media/packet capture or settings write. |
 | `debloat-audit` | Read optional-app registrations, dependencies, process identities and game-model/config metadata without capturing screen frames. |
-| `apps apply/status/verify/restore --group GROUP` | Independently control advertising, smarthub-ads, gaming, health, tv-plus, smartthings or smartthings-find apps. |
-| `services GROUP apply/status/restore` | Independently control advertising, reporting, wifi-presence, health, smartthings or screen-recognition runtime units. |
+| `apps apply/status/verify/restore --group GROUP` | Control a profile app group with its own journal; CLI help lists available groups. |
+| `services GROUP apply/status/restore` | Control a profile runtime group with its own journal; CLI help lists available groups. |
 | `certificates apply/status/restore` | Overlay 11 verified certificate files in a separate journal, removing four emSign roots without disturbing voice state. Current boot only. |
 | `auto-update status/disable/restore` | Read or set the native Auto Update option; preserve its original value and leave manual updater services intact. |
 | `startup install/status/run/remove` | Save currently applied runtime scopes for automatic boot reapplication, inspect it, test the installed startup path, or restore the original startup script. |
@@ -141,6 +142,48 @@ controls applied. Then use the relevant restore commands, or reinstall after
 verifying a changed selection. On changed hook or backup bytes, stop and inspect
 rather than overwriting them. Keep scripts, profile, AGENTS.md and the concise,
 user-facing README synchronized when behavior changes.
+
+## Additional service groups
+
+The offline review covers both TV and One Connect source families, product and
+isolated-zone partitions, D-Bus entries, native service apps and bundled unit
+files. These declarations are not a runtime inventory or a safe-to-disable list.
+Use `service-audit` and save its private report before applying a new group.
+
+New independent groups preserve the deployed group lists and recovery journals:
+
+- `visual-analysis`: screen-analysis and contents-cognition managers; verifies
+  the discovery, UI-detector and subtitle-recognition helpers are absent. Loss:
+  food/text discovery and subtitle/accessibility recognition. Check ordinary
+  subtitles, HDMI, manual Art and accessibility. A mask does not prevent another
+  process reading a model, and these controls do not remove model packages.
+- `gaming-backend`: ghdaemon/ghservice native IDs and the ghdaemon service/path.
+  Preserve Game Mode, Game Bar, ALLM/VRR and controller support.
+- `remote-support`: Remote Management, Easy Support and Shop Care daemons. Keep
+  Maintenance Mode backup/restore, owner SDB and normal remote navigation.
+- `remote-pc`: Remote PC native ID and unit. Keep zone isolation and shared
+  browser/runtime services. No exploit on this firmware is established.
+- `voice-launchers`: Alexa's separate jump-starter native ID. Do not rewrite the
+  completed 25-app voice journal to add this registration.
+
+These groups are prepared from exact-build static evidence; live apply/restore
+and retained-feature validation must be reported separately. Apply each app group
+before its runtime group. Native helper checks reject missing executable paths
+before mutation and reject surviving helpers after stopping the manager, invoking
+the existing journaled rollback. Runtime status checks selected native helpers as
+well as masks. Managed app verification stays in the native-app command.
+
+Before extending automatic boot reapplication, verify its current status, remove
+the installed hook, apply/verify the new groups, reinstall and run the startup
+path. Keep existing controls enrolled. An installed/run-tested hook is not a fresh
+reboot test; require a changed boot ID for that claim.
+
+Wi-Fi motion/CSI, user-awareness, context collection, generic app/model installers
+and additional AI/model apps remain audit-only. Preserve shared sensors, soundbar
+coordination (`ssc-service`/`ssdm-service`), input analysis/iACR, consent services
+and One Connect. Do not infer privacy behavior from names: content-grab-service
+has key-grabbing code, and route-webproxy is tied to ATSC3. Do not apply TV masks
+to the companion processor based on duplicated filenames.
 
 ## Recovery and repeat runs
 
@@ -290,7 +333,7 @@ All tools support `--help`; invoke with `uv run --project tools tools/<name>.py`
 | `inspect_firmware.py` | Official ZIP + pinned unixtract `keys.ukf`; requires fresh extraction output; writes inventory/header metadata. OpenSSL required. |
 | `verify_images.py` | Decrypted sections + extractor logs; verifies CRCs and GPT, writes a local report. `--carve` explicitly writes partitions into a fresh directory. |
 | `check_msd_signatures.py` | Original MSDs + extraction logs + updater public key; prints signature results. OpenSSL required. Does not prove modified firmware acceptance. |
-| `inventory_components.py` | Extracted platform/factory-data trees; writes component/package evidence to `.local/reports/components`. |
+| `inventory_components.py` | One extracted family, or `--firmware-root firmware/filesystems` for both. Scans all provided partitions, systemd/D-Bus/bundled definitions and package manifests; preserves family/source context in `.local/reports/components`. |
 | `prepare_emudhra_removal.py RUN_NAME` | Exact baseline filesystem trees; writes non-installable certificate candidates under `.local/candidates/RUN_NAME`. Requires `rg` and OpenSSL. |
 | `build_payloads.py` | Optional .NET SDK 6.0.428; rebuilds TV helpers into fresh `.local/payload-build`, compares hashes, never deploys. Prebuilt assets need no host .NET. |
 

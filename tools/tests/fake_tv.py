@@ -27,7 +27,9 @@ if name == "id":
 elif name == "uname":
     print("aarch64")
 elif name == "readlink":
-    if args[0] in ("/proc/self/ns/mnt", "/proc/1/ns/mnt"):
+    if args[0] == "-f":
+        print(Path(args[1]).resolve())
+    elif args[0] in ("/proc/self/ns/mnt", "/proc/1/ns/mnt"):
         print("mnt:[123]")
     else:
         print(os.readlink(args[0]))

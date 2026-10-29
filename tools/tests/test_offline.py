@@ -37,6 +37,47 @@ class OfflineTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("usage:", result.stdout)
 
+    def test_inventory_covers_all_partitions_buses_and_service_apps(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sources = {
+                "T-test/pltf_t/root/usr/lib/systemd/system/normal.service": "[Service]\nExecStart=/usr/bin/normal\n",
+                "T-test/prd_t/root/usr/lib/systemd/system/product.service": "[Unit]\nAfter=one.service \\\n two.service\n[Service]\nExecStart=/usr/bin/product\n",
+                "TB-test/pltf_t/root/zone/usr/share/dbus-1/services/test.service": "[D-BUS Service]\nName=org.test\nExec=/bin/false\nSystemdService=test.service\n",
+                "TB-test/pltf_t/root/usr/apps/test/data/bundled.service": "[Service]\nExecStart=/usr/bin/helper\n",
+                "T-test/data_backup/root/share/packages/test.xml": '<manifest package="test"><service-application appid="test.helper" exec="/usr/bin/helper"/></manifest>',
+            }
+            for name, content in sources.items():
+                p = root / name
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(content)
+            result = self.run_tool(
+                "inventory_components.py",
+                "--firmware-root",
+                root,
+                "--output",
+                root / "out",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            data = json.loads((root / "out/component-inventory.json").read_text())
+            self.assertEqual(len(data["units_and_links"]), 4)
+            self.assertEqual(
+                {p["family"] for p in data["units_and_links"]}, {"T-test", "TB-test"}
+            )
+            bus = next(
+                p for p in data["units_and_links"] if p["name"] == "test.service"
+            )
+            self.assertEqual(bus["activation_kind"], "dbus")
+            product = next(
+                p for p in data["units_and_links"] if p["name"] == "product.service"
+            )
+            self.assertEqual(
+                product["directives"][0]["value"], "one.service  two.service"
+            )
+            self.assertEqual(
+                data["packages"][0]["applications"][0]["kind"], "service-application"
+            )
+
     def test_empty_verification_is_not_success(self):
         with tempfile.TemporaryDirectory() as tmp:
             report = Path(tmp) / "report.json"

@@ -64,6 +64,22 @@ class HostTests(unittest.TestCase):
                         ["/bin/bash", "-n"], input=script, text=True, check=True
                     )
 
+    def test_service_audit_is_complete_and_rejects_wrong_identity(self):
+        script = frame.render_service_audit()
+        subprocess.run(["/bin/bash", "-n"], input=script, text=True, check=True)
+        self.assertNotIn("@@", script)
+        self.assertIn("screen-analysis-service-manager.service", script)
+        self.assertIn("com.samsung.tv.wifi-motion-mgr.service", script)
+        self.assertIn("/usr/bin/dotnet-launcher-inhouse", script)
+        result = subprocess.run(
+            ["/bin/bash"],
+            input="id() { printf 999; }\n" + script,
+            text=True,
+            capture_output=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("SERVICE AUDIT COMPLETE", result.stdout)
+
     def test_transport_preserves_script_literals(self):
         text = "printf '%s' 'spaces $HOME `false` ; \"quotes\"'"
         result = subprocess.run(

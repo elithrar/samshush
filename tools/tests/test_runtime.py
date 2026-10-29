@@ -93,6 +93,7 @@ class RuntimeTests(unittest.TestCase):
             "BUILD": "expected-build",
             "CERTS": "\n".join(self.rows),
             "UNITS": getattr(self, "test_units", "one.service\ntwo.service"),
+            "PROCESSES": getattr(self, "test_processes", ""),
         }
         for name, value in values.items():
             text = text.replace(f"@@{name}@@", value)
@@ -103,6 +104,7 @@ class RuntimeTests(unittest.TestCase):
         text = text.replace("/run/frame-runtime-v1", str(self.root / "state"))
         text = text.replace("/run/systemd/system/", str(self.root / "units") + "/")
         text = text.replace("/proc/uptime", str(self.root / "uptime"))
+        text = text.replace("/proc/[0-9]*", str(self.root / "proc/[0-9]*"))
         text = text.replace("/etc/os-release", str(self.root / "os-release"))
         (self.root / "config.json").write_text(json.dumps(self.config))
         return subprocess.run(
@@ -114,6 +116,37 @@ class RuntimeTests(unittest.TestCase):
             | {"FAKE_TV": str(self.root), "FRAME_STAGE": str(self.stage)},
             timeout=30,
         )
+
+    def test_surviving_helper_rolls_back_even_when_manager_stopped(self):
+        helper = self.root / "helper"
+        helper.write_text("binary fixture")
+        self.test_processes = str(helper)
+        proc = self.root / "proc/123"
+        proc.mkdir(parents=True)
+        (proc / "exe").symlink_to(helper.resolve())
+        result = self.run_action("apply", "services")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("SURVIVING SERVICE PROCESS 123", result.stdout)
+        self.assert_original()
+
+    def test_status_detects_helper_started_outside_the_masked_manager(self):
+        helper = self.root / "helper"
+        helper.write_text("binary fixture")
+        self.test_processes = str(helper)
+        self.assertEqual(self.run_action("apply", "services").returncode, 0)
+        proc = self.root / "proc/456"
+        proc.mkdir(parents=True)
+        (proc / "exe").symlink_to(str(helper.resolve()) + " (deleted)")
+        result = self.run_action("status", "services")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("SURVIVING SERVICE PROCESS 456", result.stdout)
+
+    def test_unavailable_helper_path_is_not_verified_absent(self):
+        self.test_processes = str(self.root / "missing")
+        result = self.run_action("apply", "services")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("PROCESS PATH UNAVAILABLE", result.stderr)
+        self.assert_original()
 
     def test_starting_service_is_stopped_and_restarted_on_restore(self):
         state = json.loads((self.root / "systemd.json").read_text())

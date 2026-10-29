@@ -65,6 +65,11 @@ def render(action, scope, *, certificate_journal=False, unit_group=None):
         if not selected_units:
             raise ValueError("No assessed units in this group")
     units = "\n".join(selected_units)
+    processes = (
+        p["optional_controls"][unit_group].get("process_paths", [])
+        if unit_group is not None
+        else []
+    )
     script = device_scripts.RUNTIME
     if certificate_journal:
         script = script.replace(
@@ -80,6 +85,7 @@ def render(action, scope, *, certificate_journal=False, unit_group=None):
         "BUILD": p["build"],
         "CERTS": certs,
         "UNITS": units,
+        "PROCESSES": "\n".join(processes),
     }.items():
         script = script.replace(f"@@{key}@@", value)
     if "@@" in script:
@@ -88,6 +94,20 @@ def render(action, scope, *, certificate_journal=False, unit_group=None):
         return script
     encoded = base64.b64encode(script.encode()).decode()
     return f"printf %s {encoded} | base64 -d | nsenter --mount=/proc/1/ns/mnt /bin/bash"
+
+
+def render_service_audit():
+    p = policy()
+    units = sorted(
+        set(p.get("service_audit_units", []))
+        | {
+            unit
+            for entry in p["optional_controls"].values()
+            for unit in entry["systemd_units"]
+        }
+    )
+    script = device_scripts.SERVICE_AUDIT.replace("@@BUILD@@", p["build"])
+    return script.replace("@@UNITS@@", " ".join(shlex.quote(unit) for unit in units))
 
 
 def render_apps(action, *, sound_sensor=False, group=None):
@@ -177,6 +197,10 @@ def main():
     )
     sub.add_parser(
         "debloat-audit", help="Read optional-app, telemetry and detector dependencies"
+    )
+    sub.add_parser(
+        "service-audit",
+        help="Read service inventory, activation dependencies, app registrations and process identities",
     )
     boot = sub.add_parser(
         "startup", help="Reapply currently selected runtime controls after boot"
@@ -331,6 +355,8 @@ def main():
                     client.push(path, stage / path.name)
         elif args.action == "voice-audit":
             script = device_scripts.VOICE_AUDIT
+        elif args.action == "service-audit":
+            script = render_service_audit()
         elif args.action == "debloat-audit":
             script = device_scripts.DEBLOAT_AUDIT.replace(
                 "@@BUILD@@", policy()["build"]
