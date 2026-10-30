@@ -71,6 +71,11 @@ def render(action, scope, *, certificate_journal=False, unit_group=None):
         else []
     )
     script = device_scripts.RUNTIME
+    if unit_group is not None:
+        grace = p["optional_controls"][unit_group].get("stop_grace_seconds", 0)
+        if type(grace) is not int or not 0 <= grace <= 30:
+            raise ValueError("Invalid service stop grace period")
+        script = script.replace("STOP_GRACE_SECONDS=0", f"STOP_GRACE_SECONDS={grace}")
     if certificate_journal:
         script = script.replace(
             "STATE=/run/frame-runtime-v1", "STATE=/run/frame-certificates-v1"
@@ -208,6 +213,18 @@ def main():
     boot.add_argument(
         "operation", choices=("audit", "probe", "install", "status", "run", "remove")
     )
+    packages = sub.add_parser(
+        "packages",
+        help="Back up and natively remove the six assessed optional packages",
+    )
+    packages.add_argument(
+        "operation", choices=("prepare", "backup", "remove", "status")
+    )
+    packages.add_argument(
+        "--backup-dir",
+        type=Path,
+        help="New private directory for prepare; verified existing backup for remove",
+    )
     sub.add_parser("hdmi-audit", help="Read HDMI-CEC settings and connected devices")
     sub.add_parser(
         "privacy-audit",
@@ -302,6 +319,10 @@ def main():
         parser.error("--tv is required for TV operations")
     if not shutil.which("openssl"):
         raise ValueError("OpenSSL is required")
+    if args.action == "packages":
+        import remove_packages
+
+        return remove_packages.run(args, sys.modules[__name__])
     client = SdbClient(find_sdb(), str(args.tv))
     args.logs.mkdir(parents=True, exist_ok=True, mode=0o700)
     report = args.logs / (
@@ -409,6 +430,9 @@ def main():
             probe(
                 str(args.tv),
                 callback_host=str(args.callback_host) if args.callback_host else None,
+                # The launcher return channel otherwise expires after 50 seconds,
+                # even while an authorized command is still within its budget.
+                accept_timeout=180,
                 command_timeout=180,
                 commands=(wrapped(script),),
                 payloads=payloads,

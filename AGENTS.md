@@ -183,12 +183,54 @@ the installed hook, apply/verify the new groups, reinstall and run the startup
 path. Keep existing controls enrolled. An installed/run-tested hook is not a fresh
 reboot test; require a changed boot ID for that claim.
 
-Wi-Fi motion/CSI, user-awareness, context collection, generic app/model installers
-and additional AI/model apps remain audit-only. Preserve shared sensors, soundbar
+The separately authorized `presence-sensing`, `analytics-context`, `ai-models` and
+`optional-delivery` groups cover the assessed motion/awareness, context, interpreter
+and background-delivery paths. Other model apps and generic installers remain
+audit-only. Preserve shared sensors, soundbar
 coordination (`ssc-service`/`ssdm-service`), input analysis/iACR, consent services
 and One Connect. Do not infer privacy behavior from names: content-grab-service
 has key-grabbing code, and route-webproxy is tied to ATSC3. Do not apply TV masks
 to the companion processor based on duplicated filenames.
+
+## Package removal
+
+Package/model removal is a separate, explicitly authorized action. The `packages`
+command targets exactly six removable TPKs: `com.samsung.tv.ai-interpreter-service`,
+`com.samsung.tv.contents-recognition-dbmgr`, `com.samsung.tv.screen-analysis-dbmgr`,
+`com.samsung.tv.screen-analysis-dbmgr-nb`, `com.samsung.tizen.samsung-analytics`, and
+`com.samsung.tv.context-aware-service`. Their package paths and removability are
+checked live; shared frameworks and firmware RPMs are excluded.
+
+First verify and remove the startup hook, then apply `apps apply --group
+optional-delivery` and the `optional-delivery`, `ai-models`, `analytics-context`
+and `presence-sensing` runtime groups. Existing groups and journals stay intact.
+The context group waits 20 seconds for normal shutdown, then terminates only its
+still-pending service cgroups. Other groups retain their existing stop behavior.
+
+Use `packages prepare --backup-dir .local/backups/NAME`, then
+`packages remove --backup-dir .local/backups/NAME`. Global TV and callback options
+still precede the command. Preparation journals original app flags, stops the
+selected packages and transfers a bounded archive through the existing callback
+transport; direct SDB file pull is unavailable on this TV. The archive is readable
+only by the verified SDK UID 901 while in transit. Verify its SHA-256 on the host
+before removing the temporary TV copy. `packages backup --backup-dir PATH` retries
+a failed transfer from its prepared receipt. Do not rerun preparation over a journal.
+
+The private archive includes installed files, app data, package metadata, hashes
+and separately recorded SMACK labels. The TV tar build cannot save arbitrary
+extended attributes; do not describe this as a complete filesystem image or a
+signed reinstallable TPK. No automatic package restore is implemented. Recovery
+may require original vendor packages, and a partial uninstall requires inspecting
+the receipt before continuing. Do not edit package databases to fake uninstall
+success or blindly erase a changed package tree.
+
+The root-owned receipt is `/opt/usr/share/samshush-removals-v1`. Native uninstall
+must remove package/app registrations, installed and owner-data directories,
+including the selected model resources; selected processes must be absent.
+`packages status` verifies this. Reinstall and run the startup hook afterward;
+it reapplies all completed runtime groups and rejects incomplete removal or a
+returned package. This detects reinstallation; it is not a barrier to privileged
+firmware or every downloader. A run test is not a fresh reboot test.
 
 ## Recovery and repeat runs
 

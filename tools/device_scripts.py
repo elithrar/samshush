@@ -9,6 +9,7 @@ set -euo pipefail
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 ACTION='@@ACTION@@'
 SCOPE='@@SCOPE@@'
+STOP_GRACE_SECONDS=0
 BUILD='@@BUILD@@'
 STATE=/run/frame-runtime-v1
 LOCK=/run/frame-runtime-v1.lock
@@ -52,6 +53,46 @@ snapshot() {
             if(bad) exit 1
             for(i=1;i<=count;i++) print rows[order[i]]
         }'
+}
+# Some optional daemons ignore TERM and declare a five-minute stop timeout.
+# Only groups with an explicit grace period use bounded cgroup termination.
+pending_stops() {
+    local records unit load active pid masked
+    records=$(snapshot) || return 1
+    while IFS=$'\t' read -r unit load active pid masked; do
+        if [[ $active != inactive && $active != failed ]] || [[ $unit == *.service && $pid != 0 ]]; then
+            printf '%s\n' "$unit"
+        fi
+    done <<< "$records"
+}
+stop_selected() {
+    local pending unit i
+    local -a remaining=()
+    if (( STOP_GRACE_SECONDS == 0 )); then
+        systemctl stop "${selected[@]}"
+        return
+    fi
+    systemctl stop --no-block "${selected[@]}" || return 1
+    for ((i=0; i<STOP_GRACE_SECONDS; i++)); do
+        pending=$(pending_stops) || return 1
+        [[ -n $pending ]] || return 0
+        sleep 1
+    done
+    pending=$(pending_stops) || return 1
+    [[ -n $pending ]] || return 0
+    while IFS= read -r unit; do
+        [[ $unit == *.service ]] || { echo "Activation unit did not stop: $unit" >&2; return 1; }
+        remaining+=("$unit")
+    done <<< "$pending"
+    printf 'STOP GRACE EXPIRED; terminating selected cgroups: %s\n' "${remaining[*]}"
+    systemctl kill --kill-who=all --signal=KILL "${remaining[@]}" || return 1
+    for ((i=0; i<5; i++)); do
+        pending=$(pending_stops) || return 1
+        [[ -n $pending ]] || return 0
+        sleep 1
+    done
+    echo "Selected units remain after termination: $pending" >&2
+    return 1
 }
 check_masks() {
     local records unit load active pid masked bad=0
@@ -311,7 +352,7 @@ if [[ $SCOPE == services || $SCOPE == both || $SCOPE == voice ]]; then
     phase reload_begin
     systemctl daemon-reload
     phase stop_begin
-    systemctl stop "${selected[@]}"
+    stop_selected
     phase readback_begin
     check_masks || fail 'Unit batch readback failed'
     check_processes || fail 'Selected service process remains or cannot be checked'

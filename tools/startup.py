@@ -5,6 +5,8 @@ import io
 import tarfile
 import time
 
+import remove_packages
+
 ROOT = "/opt/usr/share/samshush-boot-v1"
 HOOK = "/opt/etc/parseinfo.sh"
 ORIGINAL_HASH = "c6369e7dec69408e176daa252d436acf6f8e265f560504d8bd831c8023c71d61"
@@ -106,6 +108,11 @@ while IFS=$'\t' read -r name journal scope; do
     cat "$ROOT/$name.status" | /bin/bash
     phase "$name.end"
 done < "$ROOT/enabled"
+if [[ -e /opt/usr/share/samshush-removals-v1 ]]; then
+    phase packages.begin
+    cat "$ROOT/packages.status" | nsenter --mount=/proc/1/ns/mnt /bin/bash
+    phase packages.end
+fi
 echo 'STARTUP COMPLETE'
 """
 
@@ -212,6 +219,9 @@ while IFS=$'\t' read -r name journal scope; do
     printf '%s\t%s\t%s\n' "$name" "$journal" "$scope" >> "$TEMP/enabled"
 done < "$TEMP/candidates"
 [[ -s $TEMP/enabled ]] || fail 'No completed runtime controls to reapply'
+if [[ -e /opt/usr/share/samshush-removals-v1 ]]; then
+    cat "$TEMP/packages.status" | nsenter --mount=/proc/1/ns/mnt /bin/bash
+fi
 # Add the selected policy to the integrity manifest before the atomic directory move.
 (cd "$TEMP" && sha256sum enabled >> SHA256SUMS)
 chown -R 0:0 "$TEMP"
@@ -281,6 +291,7 @@ def bundle(policy, render, assets):
         else:
             expected = policy["optional_controls"][name]["systemd_units"]
         files[f"{name}.expected"] = ("\n".join(expected) + "\n").encode()
+    files["packages.status"] = remove_packages.render("status", policy).encode()
     files["candidates"] = "".join(
         f"{name}\t{journal}\t{scope}\n" for name, journal, scope, _ in candidates
     ).encode()

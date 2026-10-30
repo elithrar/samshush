@@ -70,6 +70,8 @@ elif name == "umount":
     p = Path(args[-1])
     p.unlink()
     Path(str(p) + ".original").rename(p)
+elif name == "sleep":
+    pass
 elif name == "systemctl":
     with (root / "systemctl-calls.jsonl").open("a") as log:
         log.write(json.dumps(args) + "\n")
@@ -99,7 +101,7 @@ elif name == "systemctl":
                 else entry.get("load", "loaded"),
                 "ActiveState": entry["active"],
                 "MainPID": "123"
-                if entry["active"] == "active"
+                if entry["active"] in ("active", "deactivating")
                 else str(config.get("failed_main_pid", 0)),
                 "UnitFileState": "masked-runtime" if mask.is_symlink() else "enabled",
             }
@@ -129,7 +131,15 @@ elif name == "systemctl":
             if not (
                 entry["active"] == "failed" and config.get("retain_failed_on_stop")
             ):
-                entry["active"] = "inactive"
+                entry["active"] = (
+                    "deactivating" if config.get("hang_stop") == unit else "inactive"
+                )
+            state[unit] = entry
+            save()
+        elif cmd == "kill":
+            if config.get("fail_kill") == unit:
+                die()
+            entry["active"] = "inactive"
             state[unit] = entry
             save()
         elif cmd == "start":

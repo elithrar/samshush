@@ -1,7 +1,8 @@
 # Samshush
 
 Root your Samsung TV and disable unwanted voice, advertising and background
-services. Changes are reversible. It currently supports the
+services, with optional removal of selected apps and models. Service and app-disable
+controls are reversible; package removal has separate recovery limits. It supports the
 **Frame Pro QN65LS03FWFXZA running firmware 1301.0**.
 
 ## How it works
@@ -15,7 +16,9 @@ It uses Python tools and temporary helpers on the TV:
   provide temporary root access. No firmware flashing is needed.
 - **Apply changes:** Samshush saves the original state, blocks selected apps and
   services, and filters the certificate files. The helper sends results back over
-  an authenticated TCP connection, then exits. Restore commands undo the changes.
+  an authenticated TCP connection, then exits. Restore commands undo service and
+  app-disable changes. Optional package removal uses the native uninstaller after
+  a verified backup to your computer.
 
 App blocks use persistent settings. An optional startup hook reapplies service
 masks and certificate changes in the background, without your computer. Remove it
@@ -66,10 +69,12 @@ Optional controls still require the owner’s approval on other installations.
 | SmartThings and SmartThings Find | Selected integrations disabled | Samshush blocks the selected client, plugin, hub and Find apps and the IoT hub startup paths. The shared sensor service stays enabled for light sync. |
 | SmartThings Sound Sensor / Pet Care | Sound sensing settings off | SmartThings can trigger events from sound, including in standby. The shared sensor service also handles light sync, so keep it enabled. |
 | Ambient sound and ultrasonic Art presence | Disabled | `ambient-sound` uses the microphone for sound and presence detection. Blocking it removes automatic presence detection. Manual Art Mode still works. |
-| Wi-Fi presence | Selected service disabled | The LAN-presence service and startup path are blocked. Separate Wi-Fi motion, user-presence and awareness services remain under investigation; this is not a block on all presence sensing. |
+| Wi-Fi motion and presence sensing | Selected services disabled | Blocks the LAN-presence, Wi-Fi motion, user-presence and awareness services. Automatic presence-based dimming, power saving and Art wake may be lost; normal networking remains enabled. |
 | Viewing Information Services | Manual opt-out recommended | Viewing-data consent is separate from voice settings. Turn it off in the TV’s privacy settings. |
 | Content analysis and iACR | Kept enabled | Content analysis handles logo recognition and HDMI auto-detection. iACR provides playback controls. Disabling these can break useful input features. |
 | Screen-based game/app recognition | Disabled | The detector requests 960×540 frames at a configured 2.5-second interval, then feeds a 64×64 image into an INT8 model. Samshush blocks the recognition launcher and UI-image detector. |
+| Recognition models and AI interpreter | Selected packages uninstalled | Removes the AI interpreter and three recognition/model-manager packages, including about 74 MiB of installed recognition resources. Related AI interpretation and recognition features are unavailable. Other model packages remain installed. |
+| Samsung Analytics app | Uninstalled | Removes the separate Samsung Analytics package and its app-control upload handlers. This does not remove analytics code embedded in other apps. |
 | Visual analysis and subtitle recognition | Selected services disabled | The screen-analysis and cognition managers sit outside the existing game/app recognition block. Disabling them removes food/text discovery and subtitle recognition; ordinary subtitles and accessibility need separate checks. |
 | Advertising and usage analytics | Selected components disabled | Samshush blocks Adagent, targeted-ad, CoBA ads and the selected analytics and diagnostic-reporting services. Other apps may still send telemetry. |
 | TV Plus, Gaming Hub and Samsung Health | Selected apps disabled | Samshush blocks the selected apps and Health startup paths. Shared TV Plus broadcast and channel services stay enabled. |
@@ -78,25 +83,46 @@ Optional controls still require the owner’s approval on other installations.
 | Remote PC | App and service disabled | The Remote PC launcher and manager are blocked. Its sandbox and shared browser remain intact. This is not a vulnerability finding. |
 | Gaming Hub backends | Selected apps and services disabled | Two backend apps and the daemon startup path are blocked separately from Gaming Hub’s frontend. HDMI Game Mode, Game Bar and controller support are outside this group. |
 | Alexa startup helper | Not registered on the tested TV | The extracted firmware includes a separate jump-starter app. Its optional control requires that exact app registration; it was not applied on this TV. |
-| Context-aware data collection | Kept enabled pending investigation | The context-aware service requires a collector service. Its consumers, consent checks and outgoing data need tracing before changing shared functionality. |
-| App and model delivery | Audit separately | Firmware Auto Update does not control every app/model installer. Preserve manual firmware updates, DRM provisioning and shared package tools while examining specific download paths. |
+| Context-aware data collection | Selected service package removed; collector disabled | The main context-aware package is uninstalled and its data logger is stopped and masked. Other apps and context agents may still collect data. |
+| App and model delivery | Selected automatic delivery paths disabled | Blocks three app sync/update helpers and the background-update service. Shared package tools, appbinary-manager and manual firmware updates remain enabled; this does not prevent privileged firmware from reinstalling an app. |
 | HDMI-CEC / Anynet+ and ARC/eARC | Kept enabled | CEC handles device power and remote commands. ARC/eARC sends audio to the soundbar. |
 | eMudhra / emSign trust roots | Four selected roots removed | Samshush filters these roots from 11 certificate files and leaves other certificates intact. Embedded app trust stores and cached certificates are unaffected. |
 | Automatic firmware updates | Auto Update off; update manually | Check compatibility before installing firmware. An update can reset the changes or patch the root exploit. |
 | Settings, manual Art Mode, playback, browser, Netflix, networking, One Connect and DRM | Kept enabled | These provide the TV’s core functions. Preserve their shared runtimes and unrelated trust certificates. |
 
-Apps are disabled, not uninstalled. Apple TV playback, the sidebar, input selection
-and soundbar volume were checked with the earlier controls; the additional groups
-need a separate retained-feature check. This doesn’t cover every microphone input
+Most app controls disable rather than uninstall. The six packages identified above
+were uninstalled on the tested TV after an off-device backup. The owner confirmed
+Apple TV picture, soundbar volume, input selection and manual Art Mode still work
+after these changes. Fresh reboot persistence and network wake remain unverified
+for this configuration. This doesn’t cover every microphone input
 or telemetry source. See [AGENTS.md](AGENTS.md#prove-the-outcome) for test
 coverage and remaining gaps.
 
-The optional groups `visual-analysis`, `gaming-backend`, `remote-support` and
-`remote-pc` have passed live apply checks on the supported TV. `voice-launchers`
+The optional groups `visual-analysis`, `gaming-backend`, `remote-support`,
+`remote-pc`, `ai-models`, `analytics-context`, `presence-sensing` and
+`optional-delivery` have passed live apply checks on the supported TV. `voice-launchers`
 requires an app absent from that TV’s registry. Each group has its own recovery
 journal. `service-audit` reads current services, app registrations and process
 identities without launching apps or capturing media. For groups with native
 helper checks, apply rolls back if a helper survives the manager shutdown.
+
+## Optional package removal
+
+`packages prepare --backup-dir PATH` disables and stops six assessed packages,
+then copies their installed files, app data, registration evidence and SMACK labels
+to a private backup on your computer. If transfer fails, `packages backup` retries
+that transfer without repeating preparation. `packages remove --backup-dir PATH`
+requires a matching backup, unchanged files and the four new service groups blocked.
+It uses the native uninstaller; it does not force-delete firmware packages.
+`packages status` checks registration, files and surviving processes. The optional
+boot hook also checks the removal receipt after reapplying service controls.
+
+The backup is **not a guaranteed reinstallable signed package**, and there is no
+automatic package-restore command. Recovery may require original vendor packages.
+Keep the private backup outside Git. These controls operate within the TV’s OS;
+privileged firmware can undo them, and a firmware update or fresh reboot needs
+separate verification. See [the agent guide](AGENTS.md#package-removal) for the
+exact selection, required shutdown order and recovery records.
 
 ## Development
 
