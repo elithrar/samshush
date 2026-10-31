@@ -2,8 +2,10 @@
 
 Root your Samsung TV and disable unwanted voice, advertising and background
 services, with optional removal of selected apps and models. Service and app-disable
-controls are reversible; package removal has separate recovery limits. It supports the
-**Frame Pro QN65LS03FWFXZA running firmware 1301.0**.
+controls are reversible; package removal has separate recovery limits.
+
+It has been tested on the
+Frame Pro QN65LS03FWFXZA running firmware 1301.0 (Aug/Sept 2026 era), but should run on any modern Samsung TV
 
 ## How it works
 
