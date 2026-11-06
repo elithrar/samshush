@@ -276,6 +276,11 @@ def bundle(policy, render, assets):
         for name, entry in policy["optional_controls"].items()
         if entry["systemd_units"]
     ]
+    # The visual manager can request an absent model as soon as the network
+    # connects. Stop that installer and background delivery before the larger
+    # voice batch. This shortens the boot window; it is not a persistent mask.
+    priority = {"visual-analysis": 0, "optional-delivery": 1}
+    candidates.sort(key=lambda candidate: priority.get(candidate[0], 2))
     for name, _, scope, options in candidates:
         for action in ("apply", "status"):
             files[f"{name}.{action}"] = (

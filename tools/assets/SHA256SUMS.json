@@ -10,9 +10,13 @@
   "certificates/cert-08.pem": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   "certificates/cert-09.pem": "7b17ee84f380b6c2a8c1c010a1bdd6c41a26a11ca0eb0b09f9d1496ed63dede7",
   "certificates/cert-10.pem": "04ebd63b6bb89c1b4ff9d60ca6f7b3303ebcf147363572e4fedbbfa3c69c06d2",
+  "payloads/HomeSourceReadout.dll": "64976fcd80b5a593e82deaf223e076762fa359bc80138ffff781d9fc5165b50c",
+  "payloads/HomeSourceReadout.runtimeconfig.json": "8ebf1afc4a8bfef5f6a7995da4e039ba5be15d2700e72c19dc308c7a21c01271",
   "payloads/OwnerExec.dll": "75050e57303ea2e846e1327e3f312895426fa3f959d32ee1bf7a3c4312a90bf2",
   "payloads/OwnerExec.runtimeconfig.json": "aeb46a15366e38511c192ccf65312442c64e8753b3c16fd2ca0b4cb34a5c59f3",
   "payloads/SamsungTvArchiveRoot.dll": "d29ccb9b7b71573a6782ddbcd5badf42c53de1a9ed3d00ae0f78c08be78ecb1d",
   "payloads/SamsungTvRootAgent.dll": "fd3690c28084ada12c8eb50a64bb9e6be6702a8e9b9d405cf21dbe3827ba83dc",
-  "vdfs-unpack.patch": "e4de4c12aaa6ca155305ddce0221ab38ca25c7ccecbaad5b71d5d3e8ffcc20df"
+  "vdfs-unpack.patch": "e4de4c12aaa6ca155305ddce0221ab38ca25c7ccecbaad5b71d5d3e8ffcc20df",
+  "payloads/LaunchpadRouting.dll": "2957f19555a8de57acde0723ac13ca1792ecd0cc26763703e66eb5b7f8937fd0",
+  "payloads/LaunchpadRouting.runtimeconfig.json": "8ebf1afc4a8bfef5f6a7995da4e039ba5be15d2700e72c19dc308c7a21c01271"
 }

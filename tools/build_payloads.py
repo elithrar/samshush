@@ -9,6 +9,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import launchpad_routing
 from payload_sources import SOURCES
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,11 +40,21 @@ def main():
         parser.error(f"Expected SDK 6.0.428, got {version}")
     args.output.mkdir(parents=True, exist_ok=False)
     result = {"sdk": version, "deployed": False, "helpers": []}
-    for name in ("SamsungTvArchiveRoot", "SamsungTvRootAgent", "OwnerExec"):
+    sources = SOURCES | {
+        launchpad_routing.NAME + ".cs": launchpad_routing.SOURCE,
+        launchpad_routing.NAME + ".csproj": launchpad_routing.PROJECT,
+    }
+    for name in (
+        "SamsungTvArchiveRoot",
+        "SamsungTvRootAgent",
+        "OwnerExec",
+        "HomeSourceReadout",
+        launchpad_routing.NAME,
+    ):
         project = args.output / name
         project.mkdir()
         for suffix in (".cs", ".csproj"):
-            (project / (name + suffix)).write_text(SOURCES[name + suffix])
+            (project / (name + suffix)).write_text(sources[name + suffix])
         subprocess.run(
             [
                 str(dotnet),
@@ -63,13 +74,20 @@ def main():
         )
         data = (project / "out" / (name + ".dll")).read_bytes()
         baseline = ROOT / "tools/assets/payloads" / (name + ".dll")
-        result["helpers"].append(
-            {
-                "name": name,
-                "sha256": hashlib.sha256(data).hexdigest(),
-                "matches_checked_in_asset": data == baseline.read_bytes(),
-            }
-        )
+        helper = {
+            "name": name,
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "matches_checked_in_asset": data == baseline.read_bytes(),
+        }
+        if name in ("OwnerExec", "HomeSourceReadout", launchpad_routing.NAME):
+            runtimeconfig = name + ".runtimeconfig.json"
+            config_data = (project / "out" / runtimeconfig).read_bytes()
+            config_baseline = ROOT / "tools/assets/payloads" / runtimeconfig
+            helper["runtimeconfig_sha256"] = hashlib.sha256(config_data).hexdigest()
+            helper["runtimeconfig_matches_checked_in_asset"] = (
+                config_data == config_baseline.read_bytes()
+            )
+        result["helpers"].append(helper)
     (args.output / "manifest.json").write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result, indent=2))
 

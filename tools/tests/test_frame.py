@@ -13,10 +13,157 @@ BASE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE))
 spec = importlib.util.spec_from_file_location("frame", BASE / "frame.py")
 frame = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = frame
 spec.loader.exec_module(frame)
 
 
 class HostTests(unittest.TestCase):
+    def test_launchpad_widget_and_previous_widget_require_their_operations(self):
+        for arguments in (
+            ["launchpad", "install"],
+            ["launchpad", "activate"],
+            ["launchpad", "update"],
+            ["launchpad", "update", "--widget", "new.wgt"],
+            [
+                "launchpad",
+                "install",
+                "--widget",
+                "new.wgt",
+                "--previous-widget",
+                "old.wgt",
+            ],
+            ["launchpad", "restore", "--widget", "example.wgt"],
+        ):
+            with (
+                self.subTest(arguments=arguments),
+                patch.object(frame.sys, "argv", ["frame.py", *arguments]),
+                patch.object(frame, "verify_files") as verify,
+                patch("sys.stderr", new_callable=io.StringIO),
+                self.assertRaises(SystemExit) as raised,
+            ):
+                frame.main()
+            self.assertEqual(raised.exception.code, 2)
+            verify.assert_not_called()
+
+    def test_launchpad_dispatches_separately_from_stock_home_controls(self):
+        for operation in (
+            "inspect",
+            "launch",
+            "status",
+            "restore",
+            "install",
+            "update",
+            "activate",
+        ):
+            arguments = ["frame.py", "--tv", "192.0.2.1", "launchpad", operation]
+            if operation in ("install", "update", "activate"):
+                arguments += ["--widget", "Shortcuts.wgt"]
+            if operation == "update":
+                arguments += ["--previous-widget", "Previous.wgt"]
+            with (
+                self.subTest(operation=operation),
+                patch.object(frame.sys, "argv", arguments),
+                patch.object(frame, "verify_files"),
+                patch("launchpad.run", return_value=0) as run,
+            ):
+                self.assertEqual(frame.main(), 0)
+            self.assertEqual(run.call_args.args[0].operation, operation)
+
+    def test_returned_package_preparation_dispatches_with_private_backup(self):
+        with (
+            patch.object(
+                frame.sys,
+                "argv",
+                [
+                    "frame.py",
+                    "--tv",
+                    "192.0.2.1",
+                    "packages",
+                    "prepare-returned",
+                    "--backup-dir",
+                    ".local/backups/returned",
+                ],
+            ),
+            patch.object(frame, "verify_files"),
+            patch("remove_packages.run", return_value=0) as run,
+        ):
+            self.assertEqual(frame.main(), 0)
+        args = run.call_args.args[0]
+        self.assertEqual(args.operation, "prepare-returned")
+        self.assertEqual(args.backup_dir, Path(".local/backups/returned"))
+
+    def test_home_install_requires_explicit_scope_before_transport(self):
+        with (
+            patch.object(
+                frame.sys,
+                "argv",
+                ["frame.py", "--tv", "192.0.2.1", "home", "install"],
+            ),
+            patch.object(frame, "verify_files") as verify,
+            patch("sys.stderr", new_callable=io.StringIO) as error,
+            self.assertRaises(SystemExit) as raised,
+        ):
+            frame.main()
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("--apple-tv-only", error.getvalue())
+        verify.assert_not_called()
+
+    def test_home_scopes_are_mutually_exclusive(self):
+        with (
+            patch.object(
+                frame.sys,
+                "argv",
+                ["frame.py", "home", "install", "--startup-only", "--apple-tv-only"],
+            ),
+            patch.object(frame, "verify_files") as verify,
+            patch("sys.stderr", new_callable=io.StringIO),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            frame.main()
+        self.assertEqual(raised.exception.code, 2)
+        verify.assert_not_called()
+
+    def test_home_layout_dispatch_is_separate_from_startup_preferences(self):
+        for operation in ("inspect", "install", "status", "remove"):
+            with (
+                self.subTest(operation=operation),
+                patch.object(
+                    frame.sys,
+                    "argv",
+                    [
+                        "frame.py",
+                        "--tv",
+                        "192.0.2.1",
+                        "home",
+                        operation,
+                        "--apple-tv-only",
+                    ],
+                ),
+                patch.object(frame, "verify_files"),
+                patch("home_layout.run", return_value=0) as run,
+                patch.object(frame.home, "render") as startup,
+            ):
+                self.assertEqual(frame.main(), 0)
+            self.assertEqual(run.call_args.args[0].operation, operation)
+            startup.assert_not_called()
+
+    def test_home_startup_only_flag_cannot_be_used_for_other_operations(self):
+        for operation in ("inspect", "status", "remove"):
+            with (
+                self.subTest(operation=operation),
+                patch.object(
+                    frame.sys,
+                    "argv",
+                    ["frame.py", "home", operation, "--startup-only"],
+                ),
+                patch.object(frame, "verify_files") as verify,
+                patch("sys.stderr", new_callable=io.StringIO),
+                self.assertRaises(SystemExit) as raised,
+            ):
+                frame.main()
+            self.assertEqual(raised.exception.code, 2)
+            verify.assert_not_called()
+
     def test_voice_scope_excludes_certificates_and_unrelated_units(self):
         policy = {
             "build": "test",

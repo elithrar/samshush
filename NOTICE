@@ -6,6 +6,25 @@ https://github.com/chris-ritsen/samsung-tv-root under the Unlicense, reproduced 
 tools/vendor/LICENSE. Revisions and local changes are recorded in tools/provenance.json.
 OwnerExec is original project code.
 
+launcher/water-lilies.jpg is Claude Monet, Water Lilies, c.1915-26,
+Saint Louis Art Museum, object 134:1956, The Steinberg Charitable Fund.
+The museum identifies the image as Public Domain. Its unmodified 6000x2795
+download is included; the app uses CSS to fit the display.
+Collection and rights: https://www.slam.org/collection/objects/1930/
+Download: https://d23gjylftzdlen.cloudfront.net/db_photo/d2418/u329124183/134_1956_dig_01_o2.jpg
+SHA-256: deccef9029f32acec4eb1e4b49a6d1c43623fd2a2d697bfd10511c29a5f3e99c
+
+Optional weather data: Open-Meteo, https://open-meteo.com/
+Weather data is provided under Creative Commons Attribution 4.0 (CC BY 4.0):
+https://creativecommons.org/licenses/by/4.0/
+https://open-meteo.com/en/licence
+The app rounds Celsius values and maps WMO codes to condition labels and icons.
+
+Optional postcode lookup: Zippopotam.us, https://www.zippopotam.us/
+The lookup uses GeoNames postal data, https://www.geonames.org/, under CC BY 4.0.
+Coordinates are used unchanged for the weather lookup.
+Dataset licence: https://download.geonames.org/export/zip/readme.txt
+
 Samsung firmware and retrieved vendor binaries in the ignored firmware/ directory
 remain subject to their respective owners' terms. The project license does not
 relicense those files, third-party certificate material, or external tools in the

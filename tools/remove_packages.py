@@ -28,7 +28,11 @@ GROUPS = ("ai-models", "analytics-context", "presence-sensing", "optional-delive
 COMMON = r"""set -euo pipefail
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 umask 077
-ROOT=/opt/usr/share/samshush-removals-v1
+BASE=/opt/usr/share/samshush-removals-v1
+ROOT=@@ROOT@@
+ATTEMPT=@@ATTEMPT@@
+EXPECTED_PACKAGES=@@EXPECTED_PACKAGES@@
+PARENT_HASH=@@PARENT_HASH@@
 DB=/opt/dbspace/.pkgmgr_parser.db
 LOCK=/run/frame-runtime-v1.lock
 fail() { echo "ERROR: $*" >&2; exit 1; }
@@ -37,9 +41,15 @@ grep -Fxq 'BUILD_ID=@@BUILD@@' /etc/os-release || fail 'Firmware changed'
 [[ $(readlink /proc/self/ns/mnt) == "$(readlink /proc/1/ns/mnt)" ]] || fail 'Wrong mount namespace'
 [[ ! -L $ROOT && ! -L $LOCK ]] || fail 'Unsafe journal or lock'
 [[ ! -e $ROOT || $(stat -c '%u:%a' "$ROOT") == 0:700 ]] || fail 'Unsafe removal journal'
-packages() { cat <<'PACKAGES'
+all_packages() { cat <<'PACKAGES'
 @@PACKAGES@@
 PACKAGES
+}
+packages() {
+ if [[ -n ${SELECTED:-} ]]; then printf '%s\n' "$SELECTED"
+ elif [[ -n $ATTEMPT ]]; then cat "$ROOT/packages"
+ else all_packages
+ fi
 }
 units() { cat <<'UNITS'
 @@UNITS@@
@@ -48,6 +58,95 @@ UNITS
 hash() { sha256sum "$1" | cut -d ' ' -f 1; }
 package_row() {
  sqlite3 -readonly "$DB" "SELECT package,package_type,package_version,package_removable,package_readonly,root_path FROM package_info WHERE package='$1';"
+}
+package_paths() {
+ printf '%s\n' "/opt/usr/apps/$1" "/opt/share/packages/$1.xml" "/opt/usr/home/owner/apps_rw/$1" "/opt/usr/home/owner/apps_rw/.shared/$1" "/opt/usr/home/owner/apps_rw/.shared_tmp/$1"
+}
+snapshot_package_tree() {
+ local pkg=$1 destination=$2 path
+ : > "$destination" || return 1
+ while IFS= read -r path; do
+  [[ -e $path || -L $path ]] || continue
+  find "$path" -print0 | while IFS= read -r -d '' entry; do
+   [[ $entry != *$'\n'* && $entry != *$'\t'* ]] || fail 'Unsupported package filename'
+   target=''
+   if [[ -L $entry ]]; then
+    kind=link
+    target=$(readlink "$entry" && printf '\034') || exit 1
+    target=${target%$'\034'}
+    [[ $target == *$'\n' ]] || exit 1
+    target=${target%$'\n'}
+    [[ $target != *$'\n'* && $target != *$'\t'* ]] || fail 'Unsupported package link target'
+   elif [[ -d $entry ]]; then kind=directory
+   elif [[ -f $entry ]]; then kind=file
+   else fail 'Unsupported special file in returned package'
+   fi
+   metadata=$(stat -c '%u:%g:%a' "$entry") || exit 1
+   printf '%s\t%s\t%s\t%s\n' "$kind" "$entry" "$metadata" "$target"
+  done >> "$destination" || return 1
+ done < <(package_paths "$pkg")
+ LC_ALL=C sort -o "$destination" "$destination"
+}
+check_package_absent() {
+ local pkg=$1 path row
+ row=$(package_row "$pkg") || fail "Cannot read package registration: $pkg"
+ [[ -z $row ]] || fail "Package registered again: $pkg"
+ [[ $(sqlite3 -readonly "$DB" "SELECT count(*) FROM package_app_info WHERE package='$pkg';") == 0 ]] || fail "App registered again: $pkg"
+ while IFS= read -r path; do
+  [[ ! -e $path && ! -L $path ]] || fail "Package/model/data path remains: $path"
+ done < <(package_paths "$pkg")
+}
+original_receipt() {
+ local name
+ [[ -d $BASE && ! -L $BASE && $(stat -c '%u:%a' "$BASE") == 0:700 ]] || fail 'Unsafe original removal receipt'
+ for name in complete build packages backup.sha256 host-verified.sha256; do
+  [[ -f $BASE/$name && ! -L $BASE/$name && $(stat -c '%u:%a' "$BASE/$name") == 0:600 ]] || fail "Invalid original receipt: $name"
+ done
+ [[ $(cat "$BASE/build") == '@@BUILD@@' && $(cat "$BASE/packages") == "$(all_packages)" ]] || fail 'Original removal receipt scope changed'
+ [[ $(cat "$BASE/backup.sha256") =~ ^[a-f0-9]{64}$ && $(cat "$BASE/host-verified.sha256") == "$(cat "$BASE/backup.sha256")" ]] || fail 'Original backup receipt changed'
+ [[ -z $PARENT_HASH || $PARENT_HASH == "$(cat "$BASE/backup.sha256")" ]] || fail 'Original backup link changed'
+}
+validate_attempt_scope() {
+ local directory=$1 pkg count expected=''
+ while IFS= read -r pkg; do
+  count=$(grep -Fxc "$pkg" "$directory/packages") || [[ $count == 0 ]] || return 1
+  [[ $count == 0 || $count == 1 ]] || return 1
+  if [[ $count == 1 ]]; then expected+="$pkg"$'\n'; fi
+ done < <(all_packages)
+ [[ -n $expected && $(cat "$directory/packages") == "${expected%$'\n'}" ]]
+}
+validate_attempts() {
+ local allowed=${1:-} directory name file digest
+ [[ -e $BASE/attempts || -L $BASE/attempts ]] || return 0
+ [[ -d $BASE/attempts && ! -L $BASE/attempts && $(stat -c '%u:%a' "$BASE/attempts") == 0:700 ]] || fail 'Unsafe returned-package attempt directory'
+ shopt -s nullglob dotglob
+ for directory in "$BASE/attempts"/*; do
+  name=${directory##*/}
+  [[ $name =~ ^[a-f0-9]{16}$ && -d $directory && ! -L $directory && $(stat -c '%u:%a' "$directory") == 0:700 ]] || fail 'Invalid returned-package attempt'
+  for file in attempt-id parent-backup.sha256 build packages; do
+   [[ -f $directory/$file && ! -L $directory/$file && $(stat -c '%u:%a' "$directory/$file") == 0:600 ]] || fail "Incomplete attempt identity: $name"
+  done
+  [[ $(cat "$directory/attempt-id") == "$name" && $(cat "$directory/build") == '@@BUILD@@' && $(cat "$directory/parent-backup.sha256") == "$(cat "$BASE/backup.sha256")" ]] || fail "Changed attempt identity: $name"
+  validate_attempt_scope "$directory" || fail "Invalid returned-package selection: $name"
+  if [[ $name != "$allowed" || -e $directory/complete ]]; then
+   for file in prepared complete backup.sha256 host-verified.sha256; do
+    [[ -f $directory/$file && ! -L $directory/$file && $(stat -c '%u:%a' "$directory/$file") == 0:600 ]] || fail "Incomplete returned-package attempt: $name"
+   done
+   digest=$(cat "$directory/backup.sha256")
+   [[ $digest =~ ^[a-f0-9]{64}$ && $(cat "$directory/host-verified.sha256") == "$digest" ]] || fail "Invalid returned-package backup receipt: $name"
+  fi
+ done
+ shopt -u nullglob dotglob
+}
+create_receipt() {
+ if [[ -n $ATTEMPT ]]; then
+  [[ -d $BASE/attempts ]] || mkdir -m 700 "$BASE/attempts"
+ fi
+ mkdir -m 700 "$ROOT"
+ if [[ -n $ATTEMPT ]]; then
+  printf '%s\n' "$ATTEMPT" > "$ROOT/attempt-id"
+  cat "$BASE/backup.sha256" > "$ROOT/parent-backup.sha256"
+ fi
 }
 check_masks() {
  local unit state
@@ -75,17 +174,13 @@ check_processes() {
   fi
   while IFS= read -r pkg; do
    [[ $target != /opt/usr/apps/"$pkg"/* ]] || fail "Package process survived: $proc $target"
-  done < <(packages)
+  done < <(all_packages)
  done
 }
 check_absent() {
- local pkg path
+ local pkg
  while IFS= read -r pkg; do
-  [[ -z $(package_row "$pkg") ]] || fail "Package registered again: $pkg"
-  [[ $(sqlite3 -readonly "$DB" "SELECT count(*) FROM package_app_info WHERE package='$pkg';") == 0 ]] || fail "App registered again: $pkg"
-  for path in "/opt/usr/apps/$pkg" "/opt/share/packages/$pkg.xml" "/opt/usr/home/owner/apps_rw/$pkg" "/opt/usr/home/owner/apps_rw/.shared/$pkg" "/opt/usr/home/owner/apps_rw/.shared_tmp/$pkg"; do
-   [[ ! -e $path && ! -L $path ]] || fail "Package/model/data path remains: $path"
-  done
+  check_package_absent "$pkg"
   echo "REMOVED $pkg"
  done < <(packages)
  check_processes
@@ -97,6 +192,8 @@ STATUS = r"""
 [[ $(cat "$ROOT/build") == '@@BUILD@@' ]] || fail 'Removal receipt belongs to another build'
 [[ $(cat "$ROOT/packages") == "$(packages)" ]] || fail 'Removal scope changed'
 [[ $(cat "$ROOT/backup.sha256") =~ ^[a-f0-9]{64}$ ]] || fail 'Invalid backup receipt'
+original_receipt
+validate_attempts
 check_masks
 check_absent
 echo 'PACKAGE REMOVAL VERIFIED; privileged firmware reinstallation is not prevented by this receipt.'
@@ -129,7 +226,7 @@ while IFS= read -r pkg; do
  done <<< "$apps"
  app_rows+="$apps"$'\n'
 done < <(packages)
-mkdir -m 700 "$ROOT"
+create_receipt
 printf '%s\n' '@@BUILD@@' > "$ROOT/build"
 packages > "$ROOT/packages"
 printf '%s' "$rows" > "$ROOT/metadata.before"
@@ -146,9 +243,9 @@ sleep 3
 check_processes
 : > "$ROOT/paths"
 while IFS= read -r pkg; do
- for path in "/opt/usr/apps/$pkg" "/opt/share/packages/$pkg.xml" "/opt/usr/home/owner/apps_rw/$pkg" "/opt/usr/home/owner/apps_rw/.shared/$pkg" "/opt/usr/home/owner/apps_rw/.shared_tmp/$pkg"; do
+ while IFS= read -r path; do
   if [[ -e $path || -L $path ]]; then printf '%s\n' "${path#/}" >> "$ROOT/paths"; fi
- done
+ done < <(package_paths "$pkg")
 done < <(packages)
 : > "$ROOT/files.sha256"
 : > "$ROOT/labels"
@@ -156,6 +253,17 @@ while IFS= read -r path; do
  find "/$path" -type f -exec sha256sum '{}' + >> "$ROOT/files.sha256"
  find "/$path" -exec chsmack '{}' + >> "$ROOT/labels"
 done < "$ROOT/paths"
+if [[ -n $ATTEMPT ]]; then
+ mkdir -m 700 "$ROOT/package-files"
+ while IFS= read -r pkg; do
+  : > "$ROOT/package-files/$pkg.sha256"
+  while IFS= read -r path; do
+   if [[ -e $path ]]; then find "$path" -type f -exec sha256sum '{}' + >> "$ROOT/package-files/$pkg.sha256"; fi
+  done < <(package_paths "$pkg")
+  LC_ALL=C sort -o "$ROOT/package-files/$pkg.sha256" "$ROOT/package-files/$pkg.sha256"
+  snapshot_package_tree "$pkg" "$ROOT/package-files/$pkg.tree" || fail "Cannot snapshot package paths: $pkg"
+ done < <(packages)
+fi
 # Include the package metadata and labels as well as the complete installed
 # files and private app data. This archive is not advertised as a signed TPK.
 printf '%s\n' "${ROOT#/}" >> "$ROOT/paths"
@@ -221,18 +329,143 @@ sync
 echo 'REMOVAL COMPLETE'
 """
 
+RETURNED_CONTEXT = r"""
+original_receipt
+validate_attempts "$ATTEMPT"
+[[ -d $ROOT && ! -L $ROOT ]] || fail 'Returned-package attempt is missing'
+[[ -z $EXPECTED_PACKAGES || $(cat "$ROOT/packages") == "$EXPECTED_PACKAGES" ]] || fail 'Returned-package selection changed'
+"""
 
-def render(action, policy, *, archive="", backup_hash=""):
+PREPARE_RETURNED = r"""
+original_receipt
+validate_attempts
+[[ ! -e /opt/usr/share/samshush-boot-v1 ]] || fail 'Remove automatic reapplication before preparing returned packages'
+SELECTED=''
+while IFS= read -r pkg; do
+ row=$(package_row "$pkg") || fail "Cannot read package registration: $pkg"
+ if [[ -z $row ]]; then
+  check_package_absent "$pkg"
+  continue
+ fi
+ # The existing preparation validates removability and all app mappings below.
+ # Reject links and unexpected path kinds before recording or disabling any app.
+ while IFS= read -r path; do
+  [[ ! -L $path ]] || fail "Unsafe returned-package path: $path"
+  if [[ $path == /opt/share/packages/* ]]; then
+   [[ -f $path ]] || fail "Missing package registration file: $pkg"
+  elif [[ -e $path ]]; then
+   [[ -d $path ]] || fail "Unexpected package path type: $path"
+  fi
+ done < <(package_paths "$pkg")
+ SELECTED+="$pkg"$'\n'
+done < <(all_packages)
+SELECTED=${SELECTED%$'\n'}
+[[ -n $SELECTED ]] || fail 'No assessed packages have returned'
+[[ -z $EXPECTED_PACKAGES || $SELECTED == "$EXPECTED_PACKAGES" ]] || fail 'Discovered returned-package selection changed'
+"""
+
+RETURNED_EVIDENCE = r"""
+printf 'RETURNED_ATTEMPT %s\n' "$ATTEMPT"
+printf 'PARENT_BACKUP_SHA256 %s\n' "$(cat "$ROOT/parent-backup.sha256")"
+while IFS= read -r pkg; do printf 'RETURNED_PACKAGE %s\n' "$pkg"; done < <(packages)
+"""
+
+REMOVE_RETURNED = r"""
+[[ -f $ROOT/prepared && ! -L $ROOT/prepared ]] || fail 'No prepared returned-package removal'
+[[ $(cat "$ROOT/backup.sha256") == '@@BACKUP_HASH@@' && $(cat "$ROOT/host-verified.sha256") == '@@BACKUP_HASH@@' ]] || fail 'No matching host-verified returned-package backup'
+if [[ -f $ROOT/complete ]]; then
+ while IFS= read -r pkg; do check_package_absent "$pkg"; done < <(all_packages)
+ check_processes
+ echo 'RETURNED REMOVAL ALREADY COMPLETE'
+ exit 0
+fi
+[[ -d $ROOT/package-files && ! -L $ROOT/package-files && $(stat -c '%u:%a' "$ROOT/package-files") == 0:700 ]] || fail 'Missing returned-package file snapshots'
+if [[ -e $ROOT/uninstall || -L $ROOT/uninstall ]]; then
+ [[ -d $ROOT/uninstall && ! -L $ROOT/uninstall && $(stat -c '%u:%a' "$ROOT/uninstall") == 0:700 ]] || fail 'Unsafe uninstall progress directory'
+fi
+remaining=''
+# Validate every remaining package before invoking the native uninstaller.
+# Previously begun packages may be skipped only when their full absence is proven.
+while IFS= read -r pkg; do
+ row=$(package_row "$pkg") || fail "Cannot read package registration: $pkg"
+ progress=''
+ if [[ -e $ROOT/uninstall/$pkg || -L $ROOT/uninstall/$pkg ]]; then
+  [[ -f $ROOT/uninstall/$pkg && ! -L $ROOT/uninstall/$pkg && $(stat -c '%u:%a' "$ROOT/uninstall/$pkg") == 0:600 ]] || fail "Invalid uninstall progress: $pkg"
+  progress=$(cat "$ROOT/uninstall/$pkg")
+  [[ $progress == begun || $progress == done ]] || fail "Invalid uninstall phase: $pkg"
+ fi
+ if [[ -z $row ]]; then
+  [[ -n $progress ]] || fail "Package disappeared before its recorded uninstall: $pkg"
+  check_package_absent "$pkg"
+  continue
+ fi
+ [[ $progress != done ]] || fail "Package returned after this attempt removed it: $pkg"
+ expected=$(awk -F '|' -v package="$pkg" '$1 == package {print}' "$ROOT/metadata.before")
+ [[ -n $expected && $expected != *$'\n'* && $row == "$expected" ]] || fail "Package metadata drift: $pkg"
+ expected_apps=$(awk -F '|' -v package="$pkg" 'BEGIN {OFS="|"} $4 == package {$2="true"; print}' "$ROOT/apps.before")
+ current_apps=$(sqlite3 -readonly "$DB" "SELECT app_id,app_disable,app_exec,package FROM package_app_info WHERE package='$pkg' ORDER BY app_id;") || fail "Cannot read app registrations: $pkg"
+ [[ -n $expected_apps && $current_apps == "$expected_apps" ]] || fail "App registrations changed or reactivated: $pkg"
+ snapshot="$ROOT/package-files/$pkg.sha256"
+ [[ -s $snapshot && ! -L $snapshot && $(stat -c '%u:%a' "$snapshot") == 0:600 ]] || fail "Missing package file snapshot: $pkg"
+ : > "$stage/returned-files.sha256"
+ while IFS= read -r path; do
+  [[ ! -L $path ]] || fail "Package path became a symlink: $path"
+  if [[ -e $path ]]; then find "$path" -type f -exec sha256sum '{}' + >> "$stage/returned-files.sha256"; fi
+ done < <(package_paths "$pkg")
+ LC_ALL=C sort -o "$stage/returned-files.sha256" "$stage/returned-files.sha256"
+ actual_hash=$(hash "$stage/returned-files.sha256") || fail "Cannot hash current package inventory: $pkg"
+ saved_hash=$(hash "$snapshot") || fail "Cannot hash saved package inventory: $pkg"
+ [[ $actual_hash =~ ^[a-f0-9]{64}$ && $saved_hash =~ ^[a-f0-9]{64}$ && $actual_hash == "$saved_hash" ]] || fail "Package file contents or inventory changed: $pkg"
+ tree="$ROOT/package-files/$pkg.tree"
+ [[ -s $tree && ! -L $tree && $(stat -c '%u:%a' "$tree") == 0:600 ]] || fail "Missing package tree snapshot: $pkg"
+ snapshot_package_tree "$pkg" "$stage/returned-tree" || fail "Cannot inspect package paths: $pkg"
+ actual_hash=$(hash "$stage/returned-tree") || fail "Cannot hash current package tree: $pkg"
+ saved_hash=$(hash "$tree") || fail "Cannot hash saved package tree: $pkg"
+ [[ $actual_hash =~ ^[a-f0-9]{64}$ && $saved_hash =~ ^[a-f0-9]{64}$ && $actual_hash == "$saved_hash" ]] || fail "Package paths, types, ownership or permissions changed: $pkg"
+ printf 'FILES VERIFIED %s\n' "$pkg" >> "$ROOT/remove-file-check.log"
+ remaining+="$pkg"$'\n'
+done < <(packages)
+check_processes
+[[ -d $ROOT/uninstall ]] || mkdir -m 700 "$ROOT/uninstall"
+while IFS= read -r pkg; do
+ [[ -n $pkg ]] || continue
+ printf 'begun\n' > "$ROOT/uninstall/$pkg"
+ sync
+ printf 'UNINSTALL_BEGIN %s\n' "$pkg" | tee -a "$ROOT/removal.log"
+ owner_pkg -u -n "$pkg" --global >> "$ROOT/removal.log" 2>&1 || fail "Native uninstall failed: $pkg; retained attempt can be inspected and retried"
+ check_package_absent "$pkg"
+ printf 'done\n' > "$ROOT/uninstall/$pkg"
+ printf 'UNINSTALL_DONE %s\n' "$pkg" | tee -a "$ROOT/removal.log"
+done <<< "$remaining"
+while IFS= read -r pkg; do check_package_absent "$pkg"; done < <(all_packages)
+check_processes
+touch "$ROOT/complete"
+sync
+echo 'RETURNED REMOVAL COMPLETE'
+"""
+
+
+def render(
+    action,
+    policy,
+    *,
+    archive="",
+    backup_hash="",
+    attempt_id="",
+    selected_packages=None,
+    parent_backup_hash="",
+):
     scripts = {
         "prepare": PREPARE,
         "acknowledge": ACKNOWLEDGE,
         "backup": BACKUP,
         "remove": REMOVE,
         "status": STATUS,
+        "prepare-returned": PREPARE_RETURNED + PREPARE + RETURNED_EVIDENCE,
     }
     if action not in scripts:
         raise ValueError("Unknown package-removal action")
-    if action in ("prepare", "acknowledge") and not re.fullmatch(
+    if action in ("prepare", "prepare-returned", "acknowledge") and not re.fullmatch(
         r"/opt/usr/home/owner/share/tmp/samshush-package-backup-[a-f0-9]{16}\.tar\.gz",
         archive,
     ):
@@ -241,11 +474,36 @@ def render(action, policy, *, archive="", backup_hash=""):
         r"[a-f0-9]{64}", backup_hash
     ):
         raise ValueError("Invalid verified backup hash")
-    script = (
-        COMMON
-        + (MUTATION if action in ("prepare", "backup", "acknowledge", "remove") else "")
-        + scripts[action]
-    )
+    if attempt_id:
+        if not re.fullmatch(r"[a-f0-9]{16}", attempt_id):
+            raise ValueError("Invalid returned-package attempt ID")
+        if action in ("prepare", "status"):
+            raise ValueError("This action does not accept a returned-package attempt")
+        if parent_backup_hash and not re.fullmatch(r"[a-f0-9]{64}", parent_backup_hash):
+            raise ValueError("Invalid original backup link")
+        if selected_packages is not None:
+            validate_selection(selected_packages)
+        if action in ("remove", "acknowledge") and (
+            selected_packages is None or not parent_backup_hash
+        ):
+            raise ValueError(
+                "Returned removal requires its selection and original backup link"
+            )
+    elif (
+        action == "prepare-returned"
+        or selected_packages is not None
+        or parent_backup_hash
+    ):
+        raise ValueError("Returned-package context requires an attempt ID")
+    context = ""
+    body = scripts[action]
+    if attempt_id and action != "prepare-returned":
+        context = RETURNED_CONTEXT
+        if action == "remove":
+            body = REMOVE_RETURNED
+        elif action == "backup":
+            body += RETURNED_EVIDENCE
+    script = COMMON + (MUTATION if action != "status" else "") + context + body
     units = [
         unit
         for group in GROUPS
@@ -257,11 +515,69 @@ def render(action, policy, *, archive="", backup_hash=""):
         "UNITS": "\n".join(units),
         "ARCHIVE": archive,
         "BACKUP_HASH": backup_hash,
+        "ROOT": shlex.quote(f"{ROOT}/attempts/{attempt_id}" if attempt_id else ROOT),
+        "ATTEMPT": shlex.quote(attempt_id),
+        "EXPECTED_PACKAGES": shlex.quote("\n".join(selected_packages or ())),
+        "PARENT_HASH": shlex.quote(parent_backup_hash),
     }.items():
         script = script.replace("@@" + key + "@@", value)
     if "@@" in script:
         raise ValueError("Unresolved package-removal placeholder")
     return script
+
+
+def validate_selection(packages):
+    if (
+        not isinstance(packages, (list, tuple))
+        or not packages
+        or any(package not in PACKAGES for package in packages)
+        or list(packages) != [package for package in PACKAGES if package in packages]
+    ):
+        raise ValueError("Invalid returned-package selection")
+
+
+def attempt_context(record, tv, build, *, pending=False):
+    """Validate a local attempt/backup receipt before selecting a TV journal."""
+    if (
+        not isinstance(record, dict)
+        or record.get("schema") != "samshush-returned-packages-v1"
+        or record.get("tv") != tv
+        or record.get("build") != build
+        or not isinstance(record.get("attempt_id"), str)
+        or not re.fullmatch(r"[a-f0-9]{16}", record["attempt_id"])
+    ):
+        raise ValueError(
+            "Returned-package receipt belongs to another TV/build or is invalid"
+        )
+    selected = record.get("packages")
+    parent_hash = record.get("parent_backup_sha256", "")
+    if selected is None and not parent_hash and pending:
+        return record["attempt_id"], None, ""
+    validate_selection(selected)
+    if not isinstance(parent_hash, str) or not re.fullmatch(
+        r"[a-f0-9]{64}", parent_hash
+    ):
+        raise ValueError("Returned-package receipt lacks a valid original backup link")
+    return record["attempt_id"], selected, parent_hash
+
+
+def save_attempt(directory, record):
+    """Durably record the attempt identity before transfer or device access."""
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", dir=directory, delete=False
+        ) as output:
+            temporary = output.name
+            os.chmod(output.name, 0o600)
+            json.dump(record, output, indent=2)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, directory / "attempt.json")
+        temporary = None
+    finally:
+        if temporary is not None:
+            os.unlink(temporary)
 
 
 def wrap_owner(script, frame):
@@ -341,17 +657,50 @@ def run(args, frame):
         + ".tar.gz"
     )
     backup_hash = ""
-    if operation in ("prepare", "backup", "remove") and backup is None:
-        raise ValueError("--backup-dir is required for prepare/backup/remove")
-    if operation == "prepare":
+    attempt_id = ""
+    selected_packages = None
+    parent_backup_hash = ""
+    attempt_record = None
+    if (
+        operation in ("prepare", "prepare-returned", "backup", "remove")
+        and backup is None
+    ):
+        raise ValueError(
+            "--backup-dir is required for prepare/prepare-returned/backup/remove"
+        )
+    if operation in ("prepare", "prepare-returned"):
         backup.mkdir(mode=0o700, parents=True, exist_ok=False)
-    elif operation == "backup":
+        if operation == "prepare-returned":
+            attempt_id = secrets.token_hex(8)
+            attempt_record = {
+                "schema": "samshush-returned-packages-v1",
+                "attempt_id": attempt_id,
+                "tv": str(args.tv),
+                "build": frame.policy()["build"],
+            }
+            save_attempt(backup, attempt_record)
+    elif operation in ("backup", "remove"):
         if not backup.is_dir() or backup.is_symlink():
-            raise ValueError("Backup retry requires the original private directory")
+            raise ValueError("Backup/removal requires the original private directory")
+    if operation == "backup":
+        descriptor = backup / "attempt.json"
+        if not descriptor.exists():
+            descriptor = backup / "manifest.json"
+        if descriptor.exists():
+            saved = json.loads(descriptor.read_text())
+            if descriptor.name == "attempt.json" or "attempt_id" in saved:
+                attempt_id, selected_packages, parent_backup_hash = attempt_context(
+                    saved, str(args.tv), frame.policy()["build"], pending=True
+                )
+                attempt_record = saved
     elif operation == "remove":
         manifest = json.loads((backup / "manifest.json").read_text())
+        if "attempt_id" in manifest:
+            attempt_id, selected_packages, parent_backup_hash = attempt_context(
+                manifest, str(args.tv), frame.policy()["build"]
+            )
         if (
-            manifest.get("packages") != list(PACKAGES)
+            manifest.get("packages") != list(selected_packages or PACKAGES)
             or manifest.get("build") != frame.policy()["build"]
             or manifest.get("tv") != str(args.tv)
         ):
@@ -385,6 +734,9 @@ def run(args, frame):
                                 frame.policy(),
                                 archive=archive,
                                 backup_hash=backup_hash,
+                                attempt_id=attempt_id,
+                                selected_packages=selected_packages,
+                                parent_backup_hash=parent_backup_hash,
                             ),
                             frame,
                         )
@@ -402,7 +754,7 @@ def run(args, frame):
 
     try:
         result = execute(operation)
-        if operation in ("prepare", "backup"):
+        if operation in ("prepare", "prepare-returned", "backup"):
             output = "\n".join(
                 command.get("stdout", "") for command in result["commands"]
             )
@@ -412,6 +764,35 @@ def run(args, frame):
             if len(matches) != 1:
                 raise ValueError("Missing or ambiguous device backup checksum")
             backup_hash = matches[0]
+            if attempt_id:
+                ids = re.findall(
+                    r"^RETURNED_ATTEMPT ([a-f0-9]{16})$", output, re.MULTILINE
+                )
+                parents = re.findall(
+                    r"^PARENT_BACKUP_SHA256 ([a-f0-9]{64})$", output, re.MULTILINE
+                )
+                selected = re.findall(
+                    r"^RETURNED_PACKAGE ([A-Za-z0-9_.-]+)$", output, re.MULTILINE
+                )
+                validate_selection(selected)
+                if (
+                    ids != [attempt_id]
+                    or len(parents) != 1
+                    or (selected_packages is not None and selected != selected_packages)
+                    or (parent_backup_hash and parents[0] != parent_backup_hash)
+                ):
+                    raise ValueError("Returned-package backup identity changed")
+                selected_packages = selected
+                parent_backup_hash = parents[0]
+                attempt_record = {
+                    "schema": "samshush-returned-packages-v1",
+                    "attempt_id": attempt_id,
+                    "packages": selected_packages,
+                    "parent_backup_sha256": parent_backup_hash,
+                    "tv": str(args.tv),
+                    "build": frame.policy()["build"],
+                }
+                save_attempt(backup, attempt_record)
             if operation == "backup":
                 paths = re.findall(
                     r"^BACKUP_PATH (/opt/usr/home/owner/share/tmp/samshush-package-backup-[a-f0-9]{16}\.tar\.gz)$",
@@ -427,19 +808,29 @@ def run(args, frame):
             local_archive = backup / "packages.tar.gz"
             download_archive(client, archive, local_archive, backup_hash)
             manifest = {
-                "packages": list(PACKAGES),
+                "packages": list(selected_packages or PACKAGES),
                 "build": frame.policy()["build"],
                 "tv": str(args.tv),
                 "sha256": backup_hash,
                 "created_utc": stamp,
                 "recovery_limit": "Installed-file and metadata archive; not a guaranteed reinstallable signed TPK.",
             }
+            if attempt_record is not None:
+                manifest.update(attempt_record)
             manifest_path = backup / "manifest.json"
             if manifest_path.exists():
                 saved = json.loads(manifest_path.read_text())
                 if any(
-                    saved.get(k) != manifest[k]
-                    for k in ("sha256", "packages", "build", "tv")
+                    saved.get(k) != manifest.get(k)
+                    for k in (
+                        "sha256",
+                        "packages",
+                        "build",
+                        "tv",
+                        "attempt_id",
+                        "parent_backup_sha256",
+                        "schema",
+                    )
                 ):
                     raise ValueError("Existing backup manifest differs")
             with manifest_path.open("w") as output_file:

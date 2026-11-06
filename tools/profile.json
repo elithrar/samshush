@@ -427,6 +427,15 @@
       "purpose": "Stop separate Wi-Fi motion and user-awareness services.",
       "tradeoffs": "Presence-based automatic dimming, power saving and Art wake can be lost. Manual Art Mode and networking are retained."
     },
+    "samsung-service-updates": {
+      "application_ids": [
+        "com.samsung.tizen.samsung-service-manager"
+      ],
+      "systemd_units": [],
+      "purpose": "Block the Samsung service updater that can reinstall the standalone Analytics package.",
+      "tradeoffs": "Stops automatic updates to Samsung Account, Knox and other Samsung service packages. Existing account services, the generic package manager and manual firmware updates remain enabled.",
+      "validation": "Live native flag, selected-process absence, and main/legacy app-manager launch denial verified on the supported TV. Fresh-boot persistence and retained-feature checks remain separate."
+    },
     "optional-delivery": {
       "application_ids": [
         "org.tizen.was-appsync",
@@ -460,6 +469,43 @@
     "limitations": "Widgets, shared PISA/account-consent services, slive/BMS, embedded trust stores and remaining microphone routes are not covered.",
     "reboot_check": "Native flag readback and process absence. Explicit launch-denial checks were performed before this reboot.",
     "power_cycle_verified": true
+  },
+  "home": {
+    "journal": "/opt/usr/home/owner/share/frame-home-v1",
+    "settings": [
+      {
+        "name": "auto_start",
+        "key": "db/menu/smart_hub/ontvsetting/auto_start",
+        "type": "int",
+        "value": 0
+      },
+      {
+        "name": "app_booting",
+        "key": "db/menu/app_booting",
+        "type": "int",
+        "value": 0
+      },
+      {
+        "name": "autorun_tv_plus",
+        "key": "db/menu/autorun_tv_plus",
+        "type": "bool",
+        "value": 0
+      }
+    ],
+    "provider_hashes": {
+      "/usr/share/menu/providers/libsmarthub-data-provider.so": "79c08b012324b56e3245a9289166c2adaa7a0fddac74cc37e14b987203a1fbf6",
+      "/usr/share/menu/providers/libsystem-provider.so": "0960462781f515cf882398ef599f76b4b27ee30c1d3a53e7a772ce9b1eca2fb7"
+    },
+    "layout": {
+      "journal": "/opt/usr/home/owner/share/frame-home-layout-v1",
+      "component": "s/source.layer.hdmi@HDMI1/0",
+      "binary_hashes": {
+        "/opt/usr/apps/com.samsung.tv.home.media/bin/HomeMedia.dll": "9cae06a13d771f98aaaf4ce476b5d6ada12e99f9e4d035512bf49c600008699b",
+        "/usr/share/dotnet.tizen/tvappapi/Tizen.TV.Service.CoBA.Core.dll": "686716f173c501fae9c87fa9318c7ae7a0ebbcfdeabcdeaed00a1d3b5ad20561",
+        "/usr/share/dotnet.tizen/tvappapi/Tizen.TV.Service.CoBA.Common.dll": "9cce4e0c33fe7e6ee7c79031bb95b53c3e99cba6be67ca15088ef44ac9896705",
+        "/usr/bin/app_launcher": "5d6f641f564148eece10ea1e4c6da12c20f723db0892263afc138ecb144042c3"
+      }
+    }
   },
   "automatic_updates": {
     "key": "db/menu/support/softwareupdate/autoupdate",
