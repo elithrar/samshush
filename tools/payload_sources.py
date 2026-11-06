@@ -3,9 +3,208 @@
 Root helpers: chris-ritsen/samsung-tv-root at
 4ad2c4d3b0d0e0da4b5b7ebe4a787e94596f416b (Unlicense; vendor/LICENSE).
 OwnerExec: local fixed-identity native package-command helper.
+HomeSourceReadout: local fixed native source/feature getter; private output only.
+"""
+
+HOME_SOURCE_READOUT = r"""using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Threading;
+
+// Fixed readout and Apple TV identity guard: no setters, app launches or CoBA initialization.
+// Native source initialization opens a temporary D-Bus connection/subscription.
+// Output includes unrelated source metadata and must remain in private reports.
+internal static class HomeSourceReadout
+{
+    private const string Build = "T-RSMFAKUC-0090-REL-202607141953";
+    private const string Feature = "com.samsung/featureconf/sourceservice.display_unplugged_source";
+    private const int MaxJsonBytes = 1024 * 1024;
+
+    [DllImport("libc.so.6", CallingConvention = CallingConvention.Cdecl)]
+    private static extern uint geteuid();
+    [DllImport("libc.so.6", CallingConvention = CallingConvention.Cdecl)]
+    private static extern UIntPtr strnlen(IntPtr value, UIntPtr maximum);
+    [DllImport("libc.so.6", CallingConvention = CallingConvention.Cdecl)]
+    private static extern void free(IntPtr value);
+    [DllImport("/usr/lib/libsource-api.so", CallingConvention = CallingConvention.Cdecl)]
+    private static extern IntPtr get_source_list();
+    // The native implementation writes a single byte through bool*, verified in ARM disassembly.
+    [DllImport("/usr/lib/libcapi-system-info.so.0", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int system_info_get_custom_bool(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string key, ref byte value);
+
+    public static int Main(string[] arguments)
+    {
+        // Keep the native getter bounded even when the TV has no timeout utility.
+        // Do not write from this callback: blocked output must not delay process exit.
+        using var deadline = new Timer(_ => Environment.Exit(124), null, 25000, Timeout.Infinite);
+        try
+        {
+            string? expectedAppleTv = null;
+            if (arguments.Length != 0)
+            {
+                if (arguments.Length != 2 || arguments[0] != "--verify-apple-tv"
+                    || arguments[1].Length > 64
+                    || !Regex.IsMatch(arguments[1], @"\As/source\.layer\.hdmi@HDMI1(?:/[0-9]+)?\z",
+                        RegexOptions.CultureInvariant))
+                    throw new InvalidOperationException("Expected no arguments or --verify-apple-tv with an HDMI1 component ID");
+                expectedAppleTv = arguments[1];
+            }
+            if (!File.ReadAllLines("/etc/os-release").Contains("BUILD_ID=" + Build))
+                throw new InvalidOperationException("Unexpected firmware build");
+            if (geteuid() != 0)
+                throw new InvalidOperationException("Temporary root transport is required");
+            string[] owner = File.ReadAllLines("/etc/passwd")
+                .Where(line => line.StartsWith("owner:", StringComparison.Ordinal)).ToArray();
+            if (owner.Length != 1 || owner[0].Split(':').Length < 7 || owner[0].Split(':')[2] != "5001")
+                throw new InvalidOperationException("Unexpected owner identity");
+            VerifyHash("/usr/lib/libsource-api.so",
+                "11f108c67632df08dc8fa474fb2fe941d45edc2d6bdc9a934ade853e57bd8636");
+            VerifyHash("/usr/lib/libcapi-system-info.so.0",
+                "f2cc5bb172ba45d090f5b359f4bbfe7982e49f96991efddc2d2f8d86ffed6f39");
+
+            byte featureByte = 255;
+            int featureStatus = system_info_get_custom_bool(Feature, ref featureByte);
+            bool featureValid = featureStatus == 0 && featureByte <= 1;
+            string raw = ReadNativeSources();
+            using JsonDocument document = JsonDocument.Parse(raw,
+                new JsonDocumentOptions { MaxDepth = 16, AllowTrailingCommas = false });
+            if (document.RootElement.ValueKind != JsonValueKind.Array
+                || document.RootElement.GetArrayLength() == 0
+                || document.RootElement.GetArrayLength() > 256)
+                throw new InvalidOperationException("Source list must be a nonempty bounded JSON array");
+
+            var hdmi = new List<object>();
+            var appleTvSources = new List<string>();
+            var errors = new List<string>();
+            int row = 0;
+            foreach (JsonElement item in document.RootElement.EnumerateArray())
+            {
+                row++;
+                try
+                {
+                    if (item.ValueKind != JsonValueKind.Object)
+                        throw new InvalidOperationException("source item is not an object");
+                    if (item.EnumerateObject().GroupBy(p => p.Name, StringComparer.Ordinal).Any(g => g.Count() > 1))
+                        throw new InvalidOperationException("duplicate source property");
+                    int sourceType = item.GetProperty("sourceType").GetInt32();
+                    string? port = sourceType switch
+                    {
+                        13 => "HDMI1", 14 => "HDMI2", 15 => "HDMI3", 16 => "HDMI4",
+                        38 => "HDMI5", 39 => "HDMI6", 46 => "HDMI7", 47 => "HDMI8", _ => null
+                    };
+                    if (port == null) continue;
+                    int activity = item.GetProperty("mbrActivityIndex").GetInt32();
+                    bool connected = item.GetProperty("connectionState").GetBoolean();
+                    string sourceId = port + (activity < 0 ? "" : "/" + activity.ToString(CultureInfo.InvariantCulture));
+                    string componentId = "s/source.layer.hdmi@" + sourceId;
+                    string editName = Uri.UnescapeDataString(RequiredString(item, "editName"));
+                    string detectedName = Uri.UnescapeDataString(RequiredString(item, "detectedName"));
+                    hdmi.Add(new
+                    {
+                        sourceType, port, mbrActivityIndex = activity, connectionState = connected,
+                        sourceId, componentId, editName, detectedName,
+                        uniqueKey = RequiredString(item, "uniqueKey"),
+                        passesUnpluggedFilter = featureValid ? (bool?)(connected || featureByte == 1) : null
+                    });
+                    if (sourceType == 13 && connected
+                        && detectedName.Equals("Apple TV", StringComparison.OrdinalIgnoreCase))
+                        appleTvSources.Add(componentId);
+                }
+                catch (Exception error) when (error is InvalidOperationException || error is KeyNotFoundException || error is FormatException)
+                {
+                    errors.Add("row " + row.ToString(CultureInfo.InvariantCulture) + ": " + error.Message);
+                }
+            }
+            bool complete = featureValid && errors.Count == 0;
+            bool? appleTvVerified = null;
+            if (expectedAppleTv != null)
+            {
+                appleTvVerified = complete && appleTvSources.Count == 1
+                    && appleTvSources[0] == expectedAppleTv;
+                if (appleTvVerified != true)
+                {
+                    errors.Add("Apple TV source identity does not uniquely match the expected connected HDMI1 component");
+                    complete = false;
+                }
+            }
+            Console.WriteLine(JsonSerializer.Serialize(new
+            {
+                schema = "samshush-home-source-readout-v1", build = Build, complete,
+                appleTvVerification = new { expectedComponentId = expectedAppleTv, passed = appleTvVerified },
+                feature = new { key = Feature, status = featureStatus, valid = featureValid,
+                    value = featureValid ? (bool?)(featureByte == 1) : null },
+                nativeSources = document.RootElement, hdmiSources = hdmi, errors
+            }));
+            return complete ? 0 : 1;
+        }
+        catch (Exception error)
+        {
+            Console.Error.WriteLine(JsonSerializer.Serialize(new
+                { schema = "samshush-home-source-readout-v1", complete = false, error = error.GetType().Name + ": " + error.Message }));
+            return 1;
+        }
+    }
+
+    private static string RequiredString(JsonElement element, string key)
+    {
+        string result = element.GetProperty(key).GetString()
+            ?? throw new InvalidOperationException(key + " is null");
+        if (Encoding.UTF8.GetByteCount(result) > 65536)
+            throw new InvalidOperationException(key + " is oversized");
+        return result;
+    }
+
+    private static string ReadNativeSources()
+    {
+        IntPtr pointer = get_source_list();
+        if (pointer == IntPtr.Zero)
+            throw new InvalidOperationException("Native get_source_list returned null");
+        // Native CSourceAPI::GetSourceList returns strdup storage, not a borrowed pointer.
+        try
+        {
+            ulong length = strnlen(pointer, new UIntPtr(MaxJsonBytes + 1)).ToUInt64();
+            if (length == 0 || length > MaxJsonBytes)
+                throw new InvalidOperationException("Native source JSON is empty or oversized");
+            var bytes = new byte[(int)length];
+            Marshal.Copy(pointer, bytes, 0, bytes.Length);
+            return new UTF8Encoding(false, true).GetString(bytes);
+        }
+        finally { free(pointer); }
+    }
+
+    private static void VerifyHash(string path, string expected)
+    {
+        using var stream = File.OpenRead(path);
+        using var hash = SHA256.Create();
+        string actual = Convert.ToHexString(hash.ComputeHash(stream)).ToLowerInvariant();
+        if (actual != expected) throw new InvalidOperationException("Native baseline changed: " + path);
+    }
+}
 """
 
 SOURCES = {
+    "HomeSourceReadout.cs": HOME_SOURCE_READOUT,
+    "HomeSourceReadout.csproj": r"""<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <UseAppHost>false</UseAppHost>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Deterministic>true</Deterministic>
+    <DebugType>none</DebugType>
+    <RollForward>Major</RollForward>
+  </PropertyGroup>
+</Project>
+""",
     "SamsungTvArchiveRoot.cs": r"""using System;
 using System.Diagnostics;
 using System.Globalization;

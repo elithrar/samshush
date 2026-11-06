@@ -417,3 +417,23 @@ exit 0
                 text=True,
                 check=True,
             )
+
+    def test_boot_stops_model_installer_before_larger_batches_without_losing_scopes(
+        self,
+    ):
+        policy = frame.policy()
+        package = startup.bundle(policy, frame.render, frame.ASSETS)
+        with tarfile.open(fileobj=io.BytesIO(package)) as archive:
+            rows = archive.extractfile("candidates").read().decode().splitlines()
+        names = [row.split("\t")[0] for row in rows]
+        self.assertEqual(names[:2], ["visual-analysis", "optional-delivery"])
+        expected = ["voice", "certificates"] + [
+            name
+            for name, entry in policy["optional_controls"].items()
+            if entry["systemd_units"]
+        ]
+        self.assertCountEqual(names, expected)
+        self.assertEqual(
+            names[2:],
+            [name for name in expected if name not in names[:2]],
+        )

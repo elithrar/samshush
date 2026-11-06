@@ -18,6 +18,7 @@ import tempfile
 from pathlib import Path, PurePosixPath
 
 import device_scripts
+import home
 import startup
 
 HERE = Path(__file__).resolve().parent
@@ -218,12 +219,13 @@ def main():
         help="Back up and natively remove the six assessed optional packages",
     )
     packages.add_argument(
-        "operation", choices=("prepare", "backup", "remove", "status")
+        "operation",
+        choices=("prepare", "prepare-returned", "backup", "remove", "status"),
     )
     packages.add_argument(
         "--backup-dir",
         type=Path,
-        help="New private directory for prepare; verified existing backup for remove",
+        help="New private directory for preparation; original attempt directory for backup/remove",
     )
     sub.add_parser("hdmi-audit", help="Read HDMI-CEC settings and connected devices")
     sub.add_parser(
@@ -273,6 +275,49 @@ def main():
         "auto-update", help="Read, disable or restore native automatic firmware updates"
     )
     updater.add_argument("operation", choices=("status", "disable", "restore"))
+    home_control = sub.add_parser(
+        "home", help="Optional native Home startup preferences or Apple TV shortcut row"
+    )
+    home_control.add_argument(
+        "operation", choices=("inspect", "install", "status", "remove")
+    )
+    home_scope = home_control.add_mutually_exclusive_group()
+    home_scope.add_argument(
+        "--startup-only",
+        action="store_true",
+        help="Install startup preferences only; arrange source shortcuts in the TV menus",
+    )
+    home_scope.add_argument(
+        "--apple-tv-only",
+        action="store_true",
+        help="Inspect, install, check or restore the Apple TV-only shortcut row",
+    )
+    launchpad = sub.add_parser(
+        "launchpad",
+        help="Optional fullscreen shortcut app and reversible Home assignment",
+    )
+    launchpad.add_argument(
+        "operation",
+        choices=(
+            "inspect",
+            "install",
+            "update",
+            "launch",
+            "activate",
+            "status",
+            "restore",
+        ),
+    )
+    launchpad.add_argument(
+        "--widget",
+        type=Path,
+        help="Signed Shortcuts.wgt; required for install, update and activate",
+    )
+    launchpad.add_argument(
+        "--previous-widget",
+        type=Path,
+        help="Previously installed signed widget; required only for update",
+    )
     sensor = sub.add_parser(
         "sound-sensor",
         help="Separately block or restore the ambient-sound capture app",
@@ -283,6 +328,24 @@ def main():
         help="Install eight vendor startup guards after a completed app apply",
     )
     args = parser.parse_args()
+    if args.action == "launchpad":
+        needs_widget = args.operation in ("install", "update", "activate")
+        if needs_widget != (args.widget is not None):
+            parser.error(
+                "--widget is required only for launchpad install, update and activate"
+            )
+        if (args.operation == "update") != (args.previous_widget is not None):
+            parser.error("--previous-widget is required only for launchpad update")
+    if args.action == "home":
+        if args.operation == "install" and not (
+            args.startup_only or args.apple_tv_only
+        ):
+            parser.error(
+                "Choose home install --startup-only for startup preferences, or "
+                "home install --apple-tv-only for the native shortcut row."
+            )
+        if args.operation != "install" and args.startup_only:
+            parser.error("--startup-only is only valid with home install")
     if args.action == "plan":
         print(json.dumps(policy(), indent=2))
         return 0
@@ -319,6 +382,14 @@ def main():
         parser.error("--tv is required for TV operations")
     if not shutil.which("openssl"):
         raise ValueError("OpenSSL is required")
+    if args.action == "home" and args.apple_tv_only:
+        import home_layout
+
+        return home_layout.run(args, sys.modules[__name__])
+    if args.action == "launchpad":
+        import launchpad
+
+        return launchpad.run(args, sys.modules[__name__])
     if args.action == "packages":
         import remove_packages
 
@@ -392,6 +463,8 @@ def main():
             script = device_scripts.AUTO_UPDATE.replace(
                 "@@BUILD@@", policy()["build"]
             ).replace("@@MODE@@", args.operation)
+        elif args.action == "home":
+            script = home.render(args.operation, policy())
         elif args.action == "services":
             script = render(args.operation, "services", unit_group=args.group)
         elif args.action == "certificates":

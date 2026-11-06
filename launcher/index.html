@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://api.open-meteo.com; object-src 'none'; base-uri 'none'">
+    <title>Home — preview</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="styles.css">
+    <script src="device.js" defer></script>
+    <script src="ui.js" defer></script>
+    <script src="weather.js" defer></script>
+  </head>
+  <body>
+    <main class="home" aria-label="Home">
+      <div class="atmosphere" aria-hidden="true"></div>
+      <div class="weather" id="weather" aria-label="Weather" hidden>
+        <div class="weather-now">
+          <span id="weather-current"></span>
+          <svg class="weather-icon" id="weather-icon" viewBox="0 0 32 32"></svg>
+        </div>
+        <div class="weather-details">
+          <span class="weather-forecast" id="weather-forecast"></span>
+          <a class="weather-credit" href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer" tabindex="-1" aria-label="Weather data by Open-Meteo">Open-Meteo</a>
+        </div>
+      </div>
+      <time class="clock" id="clock" aria-label="Current time"></time>
+
+      <section class="launcher" aria-labelledby="selection-title">
+        <h1 id="selection-title">Apple TV</h1>
+        <nav class="tiles" aria-label="Sources and controls">
+          <button class="tile selected" data-id="apple-tv" tabindex="0" aria-label="Apple TV, HDMI 1">
+            <svg class="tile-art apple-tv" viewBox="0 0 220 150" aria-hidden="true">
+              <defs>
+                <linearGradient id="box-top" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#55585f"></stop>
+                  <stop offset="1" stop-color="#24262b"></stop>
+                </linearGradient>
+                <linearGradient id="remote-body" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#f1f1f1"></stop>
+                  <stop offset="1" stop-color="#a7a8ab"></stop>
+                </linearGradient>
+              </defs>
+              <ellipse class="device-shadow" cx="105" cy="119" rx="75" ry="12"></ellipse>
+              <path d="M33 58Q32 48 44 45L102 30Q111 28 120 32L153 47Q162 51 160 62L157 93Q156 99 147 102L94 118Q86 120 79 117L42 101Q36 98 36 91Z" fill="#15171b"></path>
+              <path d="M37 50Q35 47 46 44L103 30Q112 28 119 32L153 47Q163 52 153 56L96 74Q87 77 79 73L40 57Q33 54 37 50Z" fill="url(#box-top)"></path>
+              <path d="M88 78V113" stroke="#050609" stroke-width="2" opacity=".5"></path>
+              <circle cx="142" cy="89" r="1.6" fill="#d6d8d9"></circle>
+              <g transform="translate(150 83) rotate(25)">
+                <rect width="27" height="67" rx="7" fill="#85878d" transform="translate(2 2)"></rect>
+                <rect width="27" height="67" rx="7" fill="url(#remote-body)"></rect>
+                <circle cx="13.5" cy="15" r="9" fill="#34363b"></circle>
+                <circle cx="13.5" cy="15" r="5.7" fill="#4e5056"></circle>
+                <circle cx="8.5" cy="32" r="3" fill="#3b3d42"></circle>
+                <circle cx="19" cy="32" r="3" fill="#3b3d42"></circle>
+                <circle cx="8.5" cy="43" r="3" fill="#3b3d42"></circle>
+                <rect x="16" y="40" width="6" height="16" rx="3" fill="#3b3d42"></rect>
+              </g>
+            </svg>
+            <span class="tile-label">Apple TV</span>
+          </button>
+
+          <button class="tile" data-id="hdmi-2" tabindex="-1" aria-label="HDMI 2">
+            <svg class="tile-art" viewBox="0 0 220 150" aria-hidden="true">
+              <ellipse class="device-shadow" cx="110" cy="126" rx="58" ry="7"></ellipse>
+              <rect class="monitor-shell" x="43" y="27" width="134" height="87" rx="8"></rect>
+              <rect class="monitor-screen" x="49" y="33" width="122" height="73" rx="3"></rect>
+              <path class="monitor-stand" d="M100 114H120L125 125H143V129H77V125H95Z"></path>
+              <path class="port-outline" d="M88 59H132V77L124 85H96L88 77Z"></path>
+              <path class="port-pins" d="M99 66V74M106 66V74M113 66V74M120 66V74"></path>
+            </svg>
+            <span class="tile-label">HDMI 2</span>
+          </button>
+
+          <button class="tile audio-only" data-id="hdmi-3" disabled tabindex="-1" aria-label="HDMI 3, Arc Ultra, audio only, unavailable">
+            <svg class="tile-art soundbar" viewBox="0 0 220 150" aria-hidden="true">
+              <ellipse class="device-shadow" cx="110" cy="101" rx="87" ry="8"></ellipse>
+              <rect x="18" y="61" width="184" height="35" rx="17.5" class="soundbar-body"></rect>
+              <path d="M34 67V90M40 65V92M46 65V92M52 65V92M58 65V92M64 65V92M70 65V92M76 65V92M82 65V92M88 65V92M94 65V92M100 65V92M106 65V92M112 65V92M118 65V92M124 65V92M130 65V92M136 65V92M142 65V92M148 65V92M154 65V92M160 65V92M166 65V92M172 65V92M178 65V92M184 65V92" class="soundbar-grille"></path>
+              <path d="M104 72H116" stroke="#9b9ea6" stroke-width="1.6" stroke-linecap="round"></path>
+            </svg>
+            <span class="tile-label">HDMI 3</span>
+            <span class="tile-detail">Audio only</span>
+          </button>
+
+          <button class="tile" data-id="hdmi-4" tabindex="-1" aria-label="HDMI 4">
+            <svg class="tile-art" viewBox="0 0 220 150" aria-hidden="true">
+              <ellipse class="device-shadow" cx="110" cy="126" rx="58" ry="7"></ellipse>
+              <rect class="monitor-shell" x="43" y="27" width="134" height="87" rx="8"></rect>
+              <rect class="monitor-screen" x="49" y="33" width="122" height="73" rx="3"></rect>
+              <path class="monitor-stand" d="M100 114H120L125 125H143V129H77V125H95Z"></path>
+              <path class="port-outline" d="M88 59H132V77L124 85H96L88 77Z"></path>
+              <path class="port-pins" d="M99 66V74M106 66V74M113 66V74M120 66V74"></path>
+            </svg>
+            <span class="tile-label">HDMI 4</span>
+          </button>
+
+          <button class="tile" data-id="settings" tabindex="-1" aria-label="Settings">
+            <svg class="tile-art settings-art" viewBox="0 0 220 150" aria-hidden="true">
+              <circle class="gear-disc" cx="110" cy="75" r="48"></circle>
+              <g class="gear" transform="translate(110 75)">
+                <path d="M-9-39H9L12-29L19-25L30-28L39-12L31-5V5L39 12L30 28L19 25L12 29L9 39H-9L-12 29L-19 25L-30 28L-39 12L-31 5V-5L-39-12L-30-28L-19-25L-12-29Z"></path>
+                <circle r="19"></circle>
+              </g>
+            </svg>
+            <span class="tile-label">Settings</span>
+          </button>
+
+          <button class="tile" data-id="art-mode" tabindex="-1" aria-label="Art Mode">
+            <svg class="tile-art art-frame" viewBox="0 0 220 150" aria-hidden="true">
+              <rect class="picture-frame" x="44" y="24" width="132" height="103" rx="3"></rect>
+              <rect class="picture-mat" x="49" y="29" width="122" height="93"></rect>
+              <rect class="picture-sky" x="60" y="40" width="100" height="71"></rect>
+              <circle class="picture-sun" cx="132" cy="59" r="11"></circle>
+              <path class="picture-mountain-back" d="M60 94L89 64L133 111H60Z"></path>
+              <path class="picture-mountain-front" d="M87 111L129 78L160 99V111Z"></path>
+            </svg>
+            <span class="tile-label">Art Mode</span>
+          </button>
+        </nav>
+      </section>
+      <p class="action-error" id="action-error" role="alert" hidden></p>
+    </main>
+  </body>
+</html>
