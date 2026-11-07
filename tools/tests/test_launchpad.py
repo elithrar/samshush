@@ -22,7 +22,7 @@ import home  # noqa: E402
 import launchpad  # noqa: E402
 import launchpad_routing  # noqa: E402
 
-MANIFEST = b"""<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" id="https://example.invalid/shortcuts" version="1.0.0">
+WEATHER_MANIFEST = b"""<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" id="https://example.invalid/shortcuts" version="0.2.0">
 <tizen:application package="Gxqk7W2na5" id="Gxqk7W2na5.Shortcuts" required_version="9.0"/>
 <content src="index.html"/>
 <tizen:profile name="tv"/>
@@ -31,7 +31,13 @@ MANIFEST = b"""<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://
 <tizen:privilege name="http://tizen.org/privilege/internet"/>
 <access origin="https://api.open-meteo.com" subdomains="false"/>
 </widget>"""
-LEGACY_MANIFEST = MANIFEST.replace(
+MANIFEST = WEATHER_MANIFEST.replace(
+    b"</widget>",
+    b"""<tizen:privilege name="http://tizen.org/privilege/filesystem.read"/>
+<tizen:privilege name="http://tizen.org/privilege/filesystem.write"/>
+</widget>""",
+).replace(b'version="0.2.0"', b'version="0.3.0"')
+LEGACY_MANIFEST = WEATHER_MANIFEST.replace(
     b'<tizen:privilege name="http://tizen.org/privilege/internet"/>\n', b""
 ).replace(b'<access origin="https://api.open-meteo.com" subdomains="false"/>\n', b"")
 DIGESTS = {
@@ -95,6 +101,7 @@ class LaunchpadTests(unittest.TestCase):
             "styles.css": b"body { background: black; }",
             "ui.js": b"window.testUI = true;",
             "device.js": b"window.testDevice = true;",
+            "time-controls.js": b"window.testSchedule = true;",
             "weather.js": b"window.testWeather = true;",
             "icon.png": b"\x89PNG\r\n\x1a\nfixture",
             "water-lilies.jpg": b"\xff\xd8\xff\xd9fixture",
@@ -225,12 +232,20 @@ class LaunchpadTests(unittest.TestCase):
         identity, files = launchpad.signed_widget_resources(self.widget, previous=True)
         self.assertEqual(identity.app, "Gxqk7W2na5.Shortcuts")
         self.assertEqual(files, previous)
+        weather = {k: v for k, v in self.resources.items() if k != "time-controls.js"}
+        weather["config.xml"] = WEATHER_MANIFEST
+        write_widget(self.widget, signed_members(weather))
+        self.assertEqual(
+            launchpad.signed_widget_resources(self.widget, previous=True)[1], weather
+        )
         with self.assertRaises(ValueError):
             launchpad.verify_widget(self.widget, self.source)
         for changed in (
             previous | {"config.xml": MANIFEST},
             previous | {launchpad.WEATHER_CONFIG: b"{}"},
             self.resources | {"config.xml": LEGACY_MANIFEST},
+            self.resources | {"config.xml": WEATHER_MANIFEST},
+            weather | {"config.xml": MANIFEST},
         ):
             write_widget(self.widget, signed_members(changed))
             with self.subTest(resources=list(changed)), self.assertRaises(ValueError):

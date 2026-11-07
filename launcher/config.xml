@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" id="https://samshush.local/shortcuts" version="0.2.0" viewmodes="maximized">
+<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" id="https://samshush.local/shortcuts" version="0.3.2" viewmodes="maximized">
   <tizen:application id="Gxqk7W2na5.Shortcuts" package="Gxqk7W2na5" required_version="9.0"/>
   <name>Shortcuts</name>
   <icon src="icon.png"/>
@@ -8,6 +8,8 @@
   <tizen:profile name="tv"/>
   <access origin="https://api.open-meteo.com" subdomains="false"/>
   <tizen:privilege name="http://tizen.org/privilege/internet"/>
+  <tizen:privilege name="http://tizen.org/privilege/filesystem.read"/>
+  <tizen:privilege name="http://tizen.org/privilege/filesystem.write"/>
   <tizen:privilege name="http://tizen.org/privilege/application.launch"/>
   <tizen:privilege name="http://tizen.org/privilege/tv.window"/>
   <tizen:setting background-support="disable" context-menu="disable" encryption="disable" hwkey-event="enable" install-location="auto" screen-orientation="landscape"/>

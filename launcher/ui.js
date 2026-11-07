@@ -13,6 +13,13 @@
   var error = document.getElementById("action-error");
   var clock = document.getElementById("clock");
   var adapter = window.LauncherDevice;
+  var schedule = window.LauncherSchedule;
+  var timeGroup = document.querySelector(".time-controls");
+  var controls = Array.from(timeGroup.querySelectorAll(".time-control"));
+  var art = tiles.find(function (tile) { return tile.dataset.id === "art-mode"; });
+  var savedTimes = null;
+  var scheduleBusy = false;
+  var retryTimer;
   var selected = 0;
   var busy = false;
 
@@ -35,6 +42,7 @@
   function select(index, focus) {
     if (index < 0 || index >= tiles.length) return false;
     selected = index;
+    controls.forEach(function (control) { control.tabIndex = -1; });
     tiles.forEach(function (tile, position) {
       tile.classList.toggle("selected", position === selected);
       tile.tabIndex = position === selected ? 0 : -1;
@@ -76,6 +84,78 @@
     perform("activate", actionFor(tiles[selected]));
   }
 
+  function displayTimes(pair) {
+    savedTimes = pair;
+    if (!pair && controls.includes(document.activeElement)) {
+      var message = error.hidden ? "" : error.textContent;
+      api.select("art-mode");
+      if (message) reportError(new Error(message));
+    }
+    timeGroup.hidden = !pair;
+    if (!pair) return;
+    controls.forEach(function (control) {
+      var minutes = pair[control.dataset.time];
+      var hour = Math.floor(minutes / 60);
+      var minute = minutes % 60;
+      var value = String(hour % 12 || 12) + (minute ? ":" + String(minute).padStart(2, "0") : "") +
+        (hour >= 12 ? " PM" : " AM");
+      control.querySelector(".time-value").textContent = value;
+      control.setAttribute("aria-valuenow", String(minutes));
+      control.setAttribute("aria-valuetext", value);
+    });
+  }
+
+  function refreshTimes() {
+    window.clearTimeout(retryTimer);
+    if (!schedule || !schedule.available || document.hidden || scheduleBusy) return;
+    scheduleBusy = true;
+    schedule.read().then(displayTimes, function () {
+      displayTimes(null);
+      if (!document.hidden) retryTimer = window.setTimeout(refreshTimes, 30000);
+    }).finally(function () { scheduleBusy = false; });
+  }
+
+  function adjustTime(control, step) {
+    if (!savedTimes || scheduleBusy) return;
+    var next = { start: savedTimes.start, end: savedTimes.end };
+    var field = control.dataset.time;
+    next[field] = (next[field] + step + 1440) % 1440;
+    if (next.start === next.end) {
+      reportError(new Error("Choose two different times."));
+      return;
+    }
+    error.hidden = true;
+    scheduleBusy = true;
+    control.setAttribute("aria-busy", "true");
+    schedule.set(savedTimes, next).then(function (confirmed) {
+      displayTimes(confirmed);
+      scheduleBusy = false;
+    }, function (reason) {
+      scheduleBusy = false;
+      reportError(reason);
+      refreshTimes();
+    }).finally(function () { control.removeAttribute("aria-busy"); });
+  }
+
+  function timeKey(event) {
+    var index = controls.indexOf(document.activeElement);
+    var key = {37:"ArrowLeft", 38:"ArrowUp", 39:"ArrowRight", 40:"ArrowDown", 13:"Enter"}[event.keyCode] || event.key;
+    if (index < 0) {
+      if (document.activeElement !== art || key !== "ArrowDown" || timeGroup.hidden) return false;
+      controls[0].focus();
+    } else if (key === "ArrowLeft" || key === "ArrowRight") {
+      if (!event.repeat) adjustTime(controls[index], key === "ArrowLeft" ? -60 : 60);
+    } else if (key === "ArrowUp" && index > 0) {
+      controls[index - 1].focus();
+    } else if (key === "ArrowDown") {
+      controls[Math.min(index + 1, controls.length - 1)].focus();
+    } else if (key === "ArrowUp" || key === "Enter" || key === "Escape" || key === "Backspace" ||
+        key === "BrowserBack" || event.keyCode === 10009) {
+      if (!event.repeat) api.select("art-mode");
+    } else return false;
+    return true;
+  }
+
   function updateClock() {
     var now = new Date();
     var hour = now.getHours();
@@ -104,7 +184,7 @@
 
   tiles.forEach(function (tile, index) {
     tile.addEventListener("focus", function () {
-      if (selected !== index) select(index, false);
+      if (!tile.classList.contains("selected")) select(index, false);
     });
     tile.addEventListener("click", function () {
       select(index, false);
@@ -112,7 +192,17 @@
     });
   });
 
+  controls.forEach(function (control) {
+    control.addEventListener("focus", function () {
+      select(tiles.indexOf(art), false);
+      art.classList.remove("selected");
+      art.tabIndex = -1;
+      control.tabIndex = 0;
+    });
+  });
+
   document.addEventListener("keydown", function (event) {
+    if (timeKey(event)) { event.preventDefault(); return; }
     var key = event.key;
     var code = event.keyCode;
     if (key === "ArrowLeft" || code === 37) {
@@ -133,7 +223,8 @@
   document.addEventListener("visibilitychange", function () {
     if (!document.hidden) {
       updateClock();
-      tiles[selected].focus();
+      select(selected, true);
+      refreshTimes();
     }
   });
 
@@ -141,4 +232,5 @@
   updateClock();
   window.setInterval(updateClock, 1000);
   select(0, true);
+  refreshTimes();
 }());

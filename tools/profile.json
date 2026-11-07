@@ -512,7 +512,8 @@
     "clock": "TV local time; start inclusive, end exclusive",
     "service": "samshush-art-quiet-hours.service",
     "journal": "/opt/usr/share/samshush-quiet-hours-v1",
-    "verification": "Timed HDMI viewing and Art-to-standby transitions verified on this build. Movie playback position and fresh-boot startup remain unverified."
+    "home_controls": "Sleep and Wake under Art Mode edit the installed CLI schedule in one-hour steps.",
+    "verification": "Verified native HDMI input and Art-to-standby transitions, both Home selectors, CLI readback of edited hours and restoration through Home. Movie playback position and fresh-boot startup remain unverified."
   },
   "automatic_updates": {
     "key": "db/menu/support/softwareupdate/autoupdate",

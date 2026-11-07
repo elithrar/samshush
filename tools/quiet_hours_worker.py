@@ -19,6 +19,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
+using Microsoft.Win32.SafeHandles;
 
 internal static class ArtQuietHours
 {
@@ -87,11 +88,11 @@ internal static class ArtQuietHours
         long acceptedSuspendMs, retryAfterMs;
         public int LastRequestCode { get; private set; }
 
-        public string Step(int start, int end, Func<int> minute, Func<View> read, Action settle,
+        public string Step(Func<bool> inWindow, Func<View> read, Action settle,
             Func<bool> stopped, Func<int> request, long elapsedMs, long suspendedMs,
             Func<long>? nowMs = null)
         {
-            if (!InWindow(minute(), start, end)) {
+            if (!inWindow()) {
                 accepted = null; retryAfterMs = 0; return "outside";
             }
             var first = read();
@@ -108,7 +109,7 @@ internal static class ArtQuietHours
             long recheckStarted = nowMs();
             var second = read();
             if (Classify(second) != "art" || second != first) return "changed";
-            if (!InWindow(minute(), start, end)) return "outside";
+            if (!inWindow()) return "outside";
             if (stopped()) return "stopped";
             if (nowMs() - recheckStarted > 500) return "stale";
             LastRequestCode = request();
@@ -210,6 +211,200 @@ internal static class ArtQuietHours
             throw new ArgumentException("Expected a minute of day between 0 and 1439");
         return minute;
     }
+
+    public record Hours(int Start, int End)
+    {
+        public static Hours Parse(string first, string second)
+        {
+            var value = new Hours(ArgumentMinute(first), ArgumentMinute(second));
+            if (value.Start == value.End) throw new ArgumentException("Quiet hours require distinct times");
+            return value;
+        }
+        public string Line => FormattableString.Invariant($"{Start} {End}\n");
+    }
+
+    public sealed class Schedule
+    {
+        public readonly string Session = Guid.NewGuid().ToString("N");
+        public Hours Current { get; private set; }
+        public Schedule(Hours initial) { Current = initial; }
+
+        static bool IsToken(string value) => value.Length == 32 &&
+            value.All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'));
+
+        public string Answer(string message, Action<Hours> save, Func<Hours> readCommitted)
+        {
+            if (!message.EndsWith('\n')) throw new ArgumentException("Unterminated Home request");
+            var parts = message[..^1].Split(' ');
+            if (parts.Length < 2 || !IsToken(parts[1])) throw new ArgumentException("Invalid request token");
+            string result = "ok";
+            if (parts.Length == 7 && parts[0] == "set" && IsToken(parts[2])) {
+                var previous = Hours.Parse(parts[3], parts[4]);
+                var next = Hours.Parse(parts[5], parts[6]);
+                if (parts[2] != Session || Current != previous) result = "conflict";
+                else if (next != Current) {
+                    try { save(next); Current = next; }
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException) {
+                        // A failed flush can happen before or after rename. Continue
+                        // enforcing the actual readable schedule and decline this SET.
+                        try { Current = readCommitted(); }
+                        catch (Exception failure) { throw new InvalidOperationException("Cannot recover the committed schedule", failure); }
+                        Console.Error.WriteLine("QUIET_HOURS_HOME_SAVE_FAILED=" + e.Message);
+                        result = "conflict";
+                    }
+                }
+            } else if (parts.Length != 2 || parts[0] != "get") {
+                throw new ArgumentException("Invalid Home schedule request");
+            }
+            return parts[1] + " " + Session + " " + result + " " + Current.Line;
+        }
+    }
+
+    // ARM EABI open flags differ from asm-generic. statx has a fixed Linux UAPI
+    // layout. O_PATH lets us reject devices, pipes and symlinks before opening
+    // a leaf for actual I/O, even when the widget renames it concurrently.
+    const int AtCwd = -100, Directory = 1 << 14, NoFollow = 1 << 15,
+        CloseExec = 1 << 19, PathOnly = 1 << 21, WriteNew = 1 | 64 | 128;
+    const string ConfigRoot = "/opt/usr/share/samshush-quiet-hours-v1";
+    const string Smack = "security.SMACK64";
+    [StructLayout(LayoutKind.Explicit, Size = 256)]
+    struct Statx {
+        [FieldOffset(0)] public uint Mask;
+        [FieldOffset(16)] public uint Links;
+        [FieldOffset(20)] public uint Uid;
+        [FieldOffset(28)] public ushort Mode;
+        [FieldOffset(40)] public ulong Size;
+    }
+    [DllImport("libc.so.6", SetLastError = true)] static extern int openat(int directory, string name, int flags, uint mode);
+    [DllImport("libc.so.6", SetLastError = true)] static extern int statx(int dir, string path, int flags, uint mask, out Statx value);
+    [DllImport("libc.so.6", SetLastError = true)] static extern int renameat(int oldDir, string oldName, int newDir, string newName);
+    [DllImport("libc.so.6", SetLastError = true)] static extern int unlinkat(int dir, string name, int flags);
+    [DllImport("libc.so.6", SetLastError = true)] static extern int fsync(int fd);
+    [DllImport("libc.so.6", SetLastError = true)] static extern int fchown(int fd, uint uid, uint gid);
+    [DllImport("libc.so.6", SetLastError = true)] static extern IntPtr getxattr(string path, string name, [Out] byte[] data, UIntPtr size);
+    [DllImport("libc.so.6", SetLastError = true)] static extern int fsetxattr(int fd, string name, byte[] data, UIntPtr size, int flags);
+
+    static int Fd(SafeFileHandle file) => file.DangerousGetHandle().ToInt32();
+    static string Pinned(SafeFileHandle file) => "/proc/self/fd/" + Fd(file).ToString(CultureInfo.InvariantCulture);
+    static IOException Io(string action) => new IOException(action + " (errno " + Marshal.GetLastPInvokeError() + ")");
+    static SafeFileHandle OpenAt(int directory, string name, int flags)
+    {
+        int fd = openat(directory, name, flags | NoFollow | CloseExec, 384); // 0600 for new files
+        if (fd < 0) {
+            if (Marshal.GetLastPInvokeError() == 2) throw new FileNotFoundException(name);
+            throw Io("open " + name);
+        }
+        return new SafeFileHandle(new IntPtr(fd), true);
+    }
+    static Statx Metadata(SafeFileHandle file)
+    {
+        const uint fields = 0x20f; // TYPE, MODE, NLINK, UID, SIZE
+        if (statx(Fd(file), "", 0x1000, fields, out var value) != 0) throw Io("statx");
+        if ((value.Mask & fields) != fields) throw new IOException("Incomplete file identity");
+        return value;
+    }
+    static SafeFileHandle Regular(SafeFileHandle directory, string name, uint owner, int limit)
+    {
+        var file = OpenAt(Fd(directory), name, PathOnly);
+        try {
+            var stat = Metadata(file);
+            if ((stat.Mode & 0xf000) != 0x8000 || stat.Links != 1 || stat.Uid != owner ||
+                stat.Size > (ulong)limit || (owner == 0 && (stat.Mode & 0xfff) != 384))
+                throw new IOException("Unexpected file identity: " + name);
+            return file;
+        } catch { file.Dispose(); throw; }
+    }
+    static void UnlinkTemp(int dir, string name)
+    {
+        if (unlinkat(dir, name, 0) != 0 && Marshal.GetLastPInvokeError() != 2)
+            throw Io("unlink temporary file");
+    }
+    static void Replace(SafeFileHandle dir, string name, string contents, uint owner, int limit)
+    {
+        using var template = Regular(dir, name, owner, limit);
+        string temp = name + ".tmp";
+        int parent = Fd(dir);
+        UnlinkTemp(parent, temp);
+        using var fresh = OpenAt(parent, temp, WriteNew);
+        try {
+            // Create a new inode for every reply. Never open an app-provided
+            // object for writing, including a regular file moved in from elsewhere.
+            using var output = new FileStream(fresh, FileAccess.Write);
+            output.Write(Utf8.GetBytes(contents));
+            byte[] label = new byte[256];
+            long length = getxattr(Pinned(template), Smack, label, (UIntPtr)label.Length).ToInt64();
+            if (length < 0) {
+                if (Marshal.GetLastPInvokeError() != 61) throw Io("read SMACK label"); // ENODATA
+            } else if (fsetxattr(Fd(fresh), Smack, label, (UIntPtr)(ulong)length, 0) != 0)
+                throw Io("preserve SMACK label");
+            if (owner != 0 && fchown(Fd(fresh), owner, uint.MaxValue) != 0) throw Io("own Home reply");
+            output.Flush(true);
+            if (renameat(parent, temp, parent, name) != 0) throw Io("replace " + name);
+            if (owner == 0 && fsync(parent) != 0) throw Io("sync configuration directory");
+        } finally { UnlinkTemp(parent, temp); }
+    }
+
+    sealed class HomeBridge
+    {
+        readonly Schedule schedule;
+        string? answeredRequest, answer, delivered, problem;
+        public Hours Current => schedule.Current;
+        static SafeFileHandle Root()
+        {
+            var root = OpenAt(AtCwd, ConfigRoot, Directory);
+            try {
+                var stat = Metadata(root);
+                if (stat.Uid != 0 || (stat.Mode & 0xfff) != 448) // 0700
+                    throw new IOException("Unexpected quiet-hours directory");
+                return root;
+            } catch { root.Dispose(); throw; }
+        }
+        static Hours ReadConfig()
+        {
+            using var root = Root();
+            using var file = Regular(root, "config", 0, 10);
+            string text = ReadText(Pinned(file), 10);
+            var parts = text.TrimEnd('\n').Split(' ');
+            if (parts.Length != 2) throw new IOException("Malformed quiet-hours configuration");
+            var hours = Hours.Parse(parts[0], parts[1]);
+            if (hours.Line != text) throw new IOException("Malformed quiet-hours configuration");
+            return hours;
+        }
+        public HomeBridge() { schedule = new Schedule(ReadConfig()); }
+        static void Save(Hours hours)
+        {
+            using var root = Root();
+            Replace(root, "config", hours.Line, 0, 10);
+            if (ReadConfig() != hours) throw new IOException("Quiet-hours configuration readback failed");
+        }
+        public void Poll()
+        {
+            try {
+                using var home = OpenAt(AtCwd, "/opt/usr/home/owner", Directory);
+                using var apps = OpenAt(Fd(home), "apps_rw", Directory);
+                using var pkg = OpenAt(Fd(apps), "Gxqk7W2na5", Directory);
+                using var data = OpenAt(Fd(pkg), "data", Directory);
+                if (Metadata(data).Uid != Owner) throw new IOException("Unexpected widget data owner");
+                using var request = Regular(data, "quiet-hours.request", Owner, 128);
+                string message = ReadText(Pinned(request), 128);
+                if (message == delivered) return;
+                if (message != answeredRequest) {
+                    // Check both ends before applying anything. If reply delivery
+                    // later fails, retry this cached answer without replaying SET.
+                    using var reply = Regular(data, "quiet-hours.reply", Owner, 128);
+                    answer = schedule.Answer(message, Save, ReadConfig);
+                    answeredRequest = message;
+                }
+                Replace(data, "quiet-hours.reply", answer!, Owner, 128);
+                delivered = message;
+                problem = null;
+            } catch (FileNotFoundException) { /* The optional launcher may be absent. */ }
+            catch (Exception e) when (e is IOException or ArgumentException or UnauthorizedAccessException) {
+                if (problem != e.Message) Console.Error.WriteLine("QUIET_HOURS_HOME_ERROR=" + e.Message);
+                problem = e.Message;
+            }
+        }
+    }
     static void CheckEnvironment()
     {
         if (IntPtr.Size != 4 || RuntimeInformation.ProcessArchitecture != Architecture.Arm ||
@@ -231,11 +426,12 @@ internal static class ArtQuietHours
     {
         bool check = args.Length > 0 && args[0] == "check";
         try {
-            if (args.Length != 3 || (!check && args[0] != "run"))
-                throw new ArgumentException("Expected check or run with start and end minutes");
-            int start = ArgumentMinute(args[1]), end = ArgumentMinute(args[2]);
-            if (start == end) throw new ArgumentException("Quiet hours require distinct start and end");
+            bool installed = args.Length == 1 && args[0] == "run";
+            if (!installed && (args.Length != 3 || (!check && args[0] != "run")))
+                throw new ArgumentException("Expected run, or check/run with start and end minutes");
             CheckEnvironment();
+            var home = installed ? new HomeBridge() : null;
+            var hours = home?.Current ?? Hours.Parse(args[1], args[2]);
             if (check) {
                 long started = Environment.TickCount64;
                 var view = Read(); var now = DateTimeOffset.Now;
@@ -243,8 +439,8 @@ internal static class ArtQuietHours
                 int minute = Minute(now); string state = Classify(view);
                 bool complete = minute >= 0 && state != "unknown";
                 Console.WriteLine("QUIET_HOURS_CHECK=" + JsonSerializer.Serialize(new {
-                    schema = 1, complete, start, end, wallClock = now, zone = TimeZoneInfo.Local.Id,
-                    minute, inWindow = InWindow(minute, start, end), artFullscreen = state == "art",
+                    schema = 1, complete, start = hours.Start, end = hours.End, wallClock = now, zone = TimeZoneInfo.Local.Id,
+                    minute, inWindow = InWindow(minute, hours.Start, hours.End), artFullscreen = state == "art",
                     classification = state, sampleMs, view
                 }));
                 return complete ? 0 : 1;
@@ -252,16 +448,25 @@ internal static class ArtQuietHours
             using var stop = new ManualResetEvent(false);
             using var signal = PosixSignalRegistration.Create(PosixSignal.SIGTERM, ctx => { ctx.Cancel = true; stop.Set(); });
             var policy = new Policy();
+            bool WindowOpen() {
+                home?.Poll();
+                var current = home?.Current ?? hours;
+                return InWindow(Minute(DateTimeOffset.Now), current.Start, current.End);
+            }
             Console.WriteLine("QUIET_HOURS_READY");
-            if (stop.WaitOne(GraceMs)) return 0;
+            long graceEnds = Environment.TickCount64 + GraceMs;
+            while (Environment.TickCount64 < graceEnds) {
+                home?.Poll(); // Answer Home while retaining the initial standby grace period.
+                if (stop.WaitOne((int)Math.Clamp(graceEnds - Environment.TickCount64, 0, PollMs))) return 0;
+            }
             while (!stop.WaitOne(0)) {
                 long nowMs = ClockMs(1); // CLOCK_MONOTONIC
                 long suspendMs = ClockMs(7) - nowMs; // CLOCK_BOOTTIME
-                string outcome = policy.Step(start, end, () => Minute(DateTimeOffset.Now), Read,
+                string outcome = policy.Step(WindowOpen, Read,
                     () => stop.WaitOne(ConfirmMs), () => stop.WaitOne(0), Standby, nowMs, suspendMs);
                 if (outcome == "requested") Console.WriteLine("QUIET_HOURS_STANDBY_REQUESTED");
                 if (outcome == "failed") Console.Error.WriteLine("QUIET_HOURS_STANDBY_FAILED=" + policy.LastRequestCode);
-                if (stop.WaitOne(outcome == "outside" ? 15000 : PollMs)) break;
+                if (stop.WaitOne(home == null && outcome == "outside" ? 15000 : PollMs)) break;
             }
             return 0;
         } catch (Exception e) {

@@ -24,7 +24,7 @@ SOURCE = ROOT / "launcher"
 WIDGET_NS = "{http://www.w3.org/ns/widgets}"
 TIZEN_NS = "{http://tizen.org/ns/widgets}"
 DS_NS = "{http://www.w3.org/2000/09/xmldsig#}"
-RESOURCES = (
+WEATHER_RESOURCES = (
     "config.xml",
     "index.html",
     "styles.css",
@@ -34,14 +34,14 @@ RESOURCES = (
     "icon.png",
     "water-lilies.jpg",
 )
+RESOURCES = WEATHER_RESOURCES + ("time-controls.js",)
 WEATHER_CONFIG = "weather-config.json"
 WEATHER_ORIGIN = "https://api.open-meteo.com"
-LEGACY_RESOURCES = tuple(name for name in RESOURCES if name != "weather.js")
+LEGACY_RESOURCES = tuple(name for name in WEATHER_RESOURCES if name != "weather.js")
 SIGNATURES = ("author-signature.xml", "signature1.xml")
 PRIVILEGES = {
     "http://tizen.org/privilege/application.launch",
     "http://tizen.org/privilege/tv.window",
-    "http://tizen.org/privilege/internet",
 }
 
 
@@ -60,7 +60,7 @@ def parse_xml(data):
         raise ValueError("Invalid widget XML") from error
 
 
-def manifest_identity(data, *, legacy=False):
+def manifest_identity(data, resources=RESOURCES):
     widget = parse_xml(data)
     for tag in (TIZEN_NS + "application", WIDGET_NS + "content", TIZEN_NS + "profile"):
         if len(widget.findall(tag)) != 1:
@@ -85,9 +85,16 @@ def manifest_identity(data, *, legacy=False):
         raise ValueError("Unexpected widget entry point or TV profile")
     nodes = widget.findall(TIZEN_NS + "privilege")
     privileges = [node.get("name") for node in nodes]
-    permitted = (
-        PRIVILEGES - {"http://tizen.org/privilege/internet"} if legacy else PRIVILEGES
-    )
+    permitted = PRIVILEGES.copy()
+    if "weather.js" in resources:
+        permitted.add("http://tizen.org/privilege/internet")
+    if "time-controls.js" in resources:
+        permitted.update(
+            {
+                "http://tizen.org/privilege/filesystem.read",
+                "http://tizen.org/privilege/filesystem.write",
+            }
+        )
     if (
         len(privileges) != len(permitted)
         or set(privileges) != permitted
@@ -95,7 +102,7 @@ def manifest_identity(data, *, legacy=False):
     ):
         raise ValueError("Unexpected launcher privileges")
     access = widget.findall(WIDGET_NS + "access")
-    if legacy:
+    if "weather.js" not in resources:
         valid_access = not access
     else:
         valid_access = (
@@ -224,8 +231,12 @@ def signed_widget_resources(path, source=SOURCE, *, previous=False):
         with zipfile.ZipFile(path) as archive:
             members = archive.infolist()
             names = [item.filename for item in members]
-            legacy = previous and set(names) == set(LEGACY_RESOURCES + SIGNATURES)
-            resources = LEGACY_RESOURCES if legacy else RESOURCES + (WEATHER_CONFIG,)
+            resources = RESOURCES + (WEATHER_CONFIG,)
+            if previous:
+                for old in (LEGACY_RESOURCES, WEATHER_RESOURCES + (WEATHER_CONFIG,)):
+                    if set(names) == set(old + SIGNATURES):
+                        resources = old
+                        break
             if len(names) != len(set(names)) or set(names) != set(
                 resources + SIGNATURES
             ):
@@ -250,8 +261,8 @@ def signed_widget_resources(path, source=SOURCE, *, previous=False):
         actual[name] != data for name, data in expected.items()
     ):
         raise ValueError("Signed widget differs from current launcher source")
-    identity = manifest_identity(actual["config.xml"], legacy=legacy)
-    if not legacy:
+    identity = manifest_identity(actual["config.xml"], resources)
+    if WEATHER_CONFIG in resources:
         weather_config(actual[WEATHER_CONFIG])
     for name in SIGNATURES:
         signature = parse_xml(actual[name])
@@ -396,8 +407,7 @@ def build(sdk, profile, output, source=SOURCE, *, cli=None, weather_postcode=Non
 def registration_script(identity, *, verify_resources=False, resources=None):
     """Read the one app's registration, optionally checking its installed resources."""
     files = source_files() if resources is None else resources
-    legacy = set(files) == set(LEGACY_RESOURCES)
-    if manifest_identity(files["config.xml"], legacy=legacy) != identity:
+    if manifest_identity(files["config.xml"], files) != identity:
         raise ValueError("Launcher identity differs from this checkout")
     from home import BUILD
 
@@ -423,7 +433,7 @@ root=/opt/usr/apps/{identity.package}/res/wgt
             script += (
                 f'[[ $(sha256sum "$root/{name}" | cut -d " " -f 1) == {digest} ]]\n'
             )
-        if WEATHER_CONFIG not in files and not legacy:
+        if WEATHER_CONFIG not in files and "weather.js" in files:
             script += f"""[[ -f "$root/{WEATHER_CONFIG}" && ! -L "$root/{WEATHER_CONFIG}" && $(stat -c %s "$root/{WEATHER_CONFIG}") -le 1024 ]]
 printf 'LAUNCHPAD_WEATHER_CONFIG %s\\n' "$(base64 < "$root/{WEATHER_CONFIG}" | tr -d '\\n')"
 """

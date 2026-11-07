@@ -27,13 +27,14 @@ internal static class QuietHoursTests {
         public readonly W.Policy Policy = new W.Policy();
         public W.View View = Art;
         public int Minute = Start;
+        public W.Hours Hours = new(Start, End);
         public bool Stopped;
         public int NativeResult;
         public int Requests;
         public long ElapsedMs = 100_000, SuspendedMs;
 
         public string Step(Action? transition = null) {
-            return Policy.Step(Start, End, () => Minute, () => View,
+            return Policy.Step(() => W.InWindow(Minute, Hours.Start, Hours.End), () => View,
                 () => transition?.Invoke(), () => Stopped,
                 () => { Requests++; return NativeResult; }, ElapsedMs, SuspendedMs);
         }
@@ -99,6 +100,7 @@ internal static class QuietHoursTests {
             tv => tv.View = Art with { ScreenState = 1 },
             tv => tv.View = Art with { Focus = null },
             tv => tv.Minute = End,
+            tv => tv.Hours = new W.Hours(60, 120),
             tv => tv.Stopped = true
         }) {
             var tv = new TV();
@@ -112,14 +114,14 @@ internal static class QuietHoursTests {
             var policy = new W.Policy();
             long clock = 100_000;
             int requests = 0, reads = 0;
-            string result = policy.Step(Start, End, () => Start,
+            string result = policy.Step(() => true,
                 () => { if (++reads == 2) clock += readDuration; return Art; },
                 () => {}, () => false, () => { requests++; return 0; },
                 clock, 0, () => clock);
             if (readDuration > 500) {
                 Check(result == "stale" && requests == 0,
                     "slow native read authorized standby with stale focus");
-                result = policy.Step(Start, End, () => Start, () => Art,
+                result = policy.Step(() => true, () => Art,
                     () => {}, () => false, () => { requests++; return 0; },
                     clock, 0, () => clock);
             }
@@ -162,6 +164,40 @@ internal static class QuietHoursTests {
         Check(tv.Step() == "requested" && tv.Requests == 2, "failed request suppressed later Art");
     }
 
+    static void HomeSchedule() {
+        var original = new W.Hours(Start, End);
+        var updated = new W.Hours(1380, 0);
+        var schedule = new W.Schedule(original);
+        string token = new string('a', 32), session = schedule.Session;
+        string get = $"get {token}\n";
+        string set = $"set {token} {session} 1320 420 1380 0\n";
+        W.Hours saved = original;
+        Action<W.Hours> write = hours => saved = hours;
+        Func<W.Hours> recover = () => saved;
+        Check(schedule.Answer(get, write, recover) == $"{token} {session} ok 1320 420\n", "GET readback");
+        foreach (var bad in new[]{set.TrimEnd(), set + "\n", set.Replace("420", "0420"),
+            set.Replace("1380", "1440"), set.Replace("1380", "0"), set.Replace(token, "abc"),
+            set.Replace("set ", "set  "), set.Replace("1320", "-1"), get.Replace("get", "run")}) {
+            try { schedule.Answer(bad, write, recover); throw new Exception("accepted malformed request"); }
+            catch (ArgumentException) {}
+        }
+        Check(saved == original && schedule.Current == original, "invalid request changed times");
+        Check(schedule.Answer(set, _ => throw new System.IO.IOException("disk full"), recover) ==
+            $"{token} {session} conflict 1320 420\n", "failed persistence was acknowledged");
+        Check(schedule.Current == original, "failed persistence changed effective hours");
+        Check(schedule.Answer(set, write, recover) == $"{token} {session} ok 1380 0\n" && saved == updated,
+            "save and read effective schedule");
+        Check(schedule.Answer(set, _ => throw new Exception("unexpected save"), recover)
+            == $"{token} {session} conflict 1380 0\n", "stale edit overwrote schedule");
+        var restarted = new W.Schedule(original);
+        Check(restarted.Answer(set, _ => throw new Exception("replayed old edit"), recover) ==
+            $"{token} {restarted.Session} conflict 1320 420\n", "old request replayed after restart");
+        string newSet = set.Replace(session, restarted.Session);
+        Check(restarted.Answer(newSet, _ => throw new System.IO.IOException("directory sync failed"), recover) ==
+            $"{token} {restarted.Session} conflict 1380 0\n" && restarted.Current == updated,
+            "lost a committed update after late I/O failure");
+    }
+
     static void Main(string[] args) {
         switch (args[0]) {
             case "window": Window(); break;
@@ -172,6 +208,7 @@ internal static class QuietHoursTests {
             case "fresh-session": FreshSession(); break;
             case "resume": Resume(); break;
             case "failure": Failure(); break;
+            case "home-schedule": HomeSchedule(); break;
             default: throw new ArgumentException("Unknown scenario");
         }
     }
@@ -241,6 +278,7 @@ class QuietHoursWorkerTests(unittest.TestCase):
             "fresh-session",
             "resume",
             "failure",
+            "home-schedule",
         ):
             with self.subTest(scenario=scenario):
                 result = subprocess.run(
