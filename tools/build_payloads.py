@@ -10,6 +10,7 @@ import subprocess
 from pathlib import Path
 
 import launchpad_routing
+import quiet_hours_worker
 from payload_sources import SOURCES
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,6 +44,8 @@ def main():
     sources = SOURCES | {
         launchpad_routing.NAME + ".cs": launchpad_routing.SOURCE,
         launchpad_routing.NAME + ".csproj": launchpad_routing.PROJECT,
+        quiet_hours_worker.NAME + ".cs": quiet_hours_worker.SOURCE,
+        quiet_hours_worker.NAME + ".csproj": quiet_hours_worker.PROJECT,
     }
     for name in (
         "SamsungTvArchiveRoot",
@@ -50,6 +53,7 @@ def main():
         "OwnerExec",
         "HomeSourceReadout",
         launchpad_routing.NAME,
+        quiet_hours_worker.NAME,
     ):
         project = args.output / name
         project.mkdir()
@@ -79,7 +83,12 @@ def main():
             "sha256": hashlib.sha256(data).hexdigest(),
             "matches_checked_in_asset": data == baseline.read_bytes(),
         }
-        if name in ("OwnerExec", "HomeSourceReadout", launchpad_routing.NAME):
+        if name in (
+            "OwnerExec",
+            "HomeSourceReadout",
+            launchpad_routing.NAME,
+            quiet_hours_worker.NAME,
+        ):
             runtimeconfig = name + ".runtimeconfig.json"
             config_data = (project / "out" / runtimeconfig).read_bytes()
             config_baseline = ROOT / "tools/assets/payloads" / runtimeconfig

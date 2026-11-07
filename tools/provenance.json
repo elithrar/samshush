@@ -7,7 +7,7 @@
   },
   "device_payloads": {
     "compiler": ".NET SDK 6.0.428",
-    "sources": ["payload_sources.py", "launchpad_routing.py"],
+    "sources": ["payload_sources.py", "launchpad_routing.py", "quiet_hours_worker.py"],
     "build": "uv run --project tools tools/build_payloads.py",
     "checksums": "assets/SHA256SUMS.json"
   },

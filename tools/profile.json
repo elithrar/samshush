@@ -507,6 +507,13 @@
       }
     }
   },
+  "art_quiet_hours": {
+    "command": "quiet-hours set --start HH:MM --end HH:MM",
+    "clock": "TV local time; start inclusive, end exclusive",
+    "service": "samshush-art-quiet-hours.service",
+    "journal": "/opt/usr/share/samshush-quiet-hours-v1",
+    "verification": "Timed HDMI viewing and Art-to-standby transitions verified on this build. Movie playback position and fresh-boot startup remain unverified."
+  },
   "automatic_updates": {
     "key": "db/menu/support/softwareupdate/autoupdate",
     "value": 0,

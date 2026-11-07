@@ -93,12 +93,13 @@ Optional controls still require the owner’s approval on other installations.
 | Automatic firmware updates | Auto Update off; update manually | Check compatibility before installing firmware. An update can reset the changes or patch the root exploit. |
 | Home layout and startup | Optional native presets | An Apple TV-only row simplifies Samsung’s existing interface. The full-screen replacement below is separate; its Samsung Home fallback retains the original row. |
 | Full-screen shortcut Home | Optional replacement applied | Open Apple TV, HDMI ports, Settings and Art over a Monet background from the Home button. Back returns to Samsung Home; optional weather adds current conditions and today’s high/low. |
+| Art at night | Optional quiet hours | Choose the hours when full-screen artwork should put the Frame in standby. HDMI viewing can continue during that window. |
 | Settings, manual Art Mode, playback, browser, Netflix, networking, One Connect and DRM | Kept enabled | These provide the TV’s core functions. Preserve their shared runtimes and unrelated trust certificates. |
 
 Most app controls disable rather than uninstall. Six packages were uninstalled
 after an off-device backup; two later returned and were removed again using a
-fresh backup and separate receipt. Current package absence is verified; a fresh
-boot test of the revised shutdown order is pending. The owner confirmed
+fresh backup and separate receipt. On a subsequent boot the screen-analysis
+model package returned again despite the revised shutdown order. The owner confirmed
 Apple TV picture, soundbar volume, input selection and manual Art Mode still work
 after the original changes. Complete removal persistence and network wake remain
 unverified. This doesn’t cover every microphone input
@@ -121,6 +122,16 @@ Optionally replace the default SmartHub noise with a custom home screen
 - Build with `uv run --project tools tools/launchpad.py --sdk /path/to/tizen-studio --profile Samshush --output .local/launchpad-build`. Add `--weather-postcode "$TV_WEATHER_POSTCODE"` for Celsius weather and today's forecast; your location stays in private build files.
 - Use `frame.py launchpad install --widget .local/launchpad-build/Shortcuts.wgt`, then `launchpad launch`. Check Apple TV, Settings, Art Mode and Back before assigning Home.
 - Run `launchpad activate --widget .local/launchpad-build/Shortcuts.wgt` to assign the Home button. `launchpad restore` returns it to Samsung Home. See [AGENTS.md](AGENTS.md#home-screen-optional) for complete commands, updates and recovery.
+
+## Art quiet hours (optional)
+
+On the supported Frame Pro, set a daily window in the TV’s local time. This example puts the Frame in standby when it displays artwork between 10 PM and 7 AM.
+
+```sh
+uv run --project tools tools/frame.py --tv 192.0.2.10 --callback-host 192.0.2.20 quiet-hours set --start 22:00 --end 07:00
+```
+
+Apple TV can keep playing through 10 PM. If you finish watching and switch to Art during quiet hours, the TV goes into standby. At 7 AM, a sleeping TV stays asleep until you wake it. Use `quiet-hours status` to check the schedule, repeat `set` to change the hours, or use `quiet-hours remove` to turn it off.
 
 ## Optional package removal
 
