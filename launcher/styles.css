@@ -162,3 +162,54 @@ h1 {
   .tile-detail { font-size: 1.5vw; }
   .action-error { font-size: 2.4vw; }
 }
+
+.time-controls {
+  position: absolute;
+  width: calc((100% - 5.5vw) / 6);
+  right: 0;
+  top: calc(100% + .76vw);
+  display: grid;
+  gap: .27vw;
+}
+.time-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 2.42vw;
+  padding: 0 .83vw;
+  border: .10vw solid rgba(255,255,255,.13);
+  border-radius: .53vw;
+  background: rgba(34, 38, 47, .88);
+  color: #f0f0f2;
+  cursor: pointer;
+  font-size: 1.08vw;
+  font-weight: 600;
+  letter-spacing: -.02em;
+}
+.time-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+.time-control:focus {
+  outline: .14vw solid #f8f8f6;
+  outline-offset: .09vw;
+  color: #252830;
+  background: #eeefed;
+}
+.time-control:focus .time-value::before,
+.time-control:focus .time-value::after {
+  content: '';
+  display: inline-block;
+  width: .31vw;
+  height: .31vw;
+  margin: 0 .48vw .16vw;
+  border: solid currentColor;
+  border-width: 0 .095vw .095vw 0;
+  transform: rotate(135deg);
+}
+.time-control:focus .time-value::after {
+  margin-right: 0;
+  transform: rotate(-45deg);
+}
+
+.time-control[aria-busy="true"] .time-value { opacity: .65; }

@@ -124,11 +124,14 @@ identity() {
         [[ $(hash /usr/lib/systemd/system/AT-HUB.service) == @@UNIT_HASH@@ ]] || fail 'Unexpected boot host or firmware'
 }
 read_config() {
-    regular "$1" && [[ $(stat -c %a "$1") == 600 && $(stat -c %s "$1") -le 10 ]] || return 1
-    local extra
-    read -r begin end extra < "$1" || return 1
-    [[ -z $extra && $begin =~ ^(0|[1-9][0-9]{0,3})$ && $end =~ ^(0|[1-9][0-9]{0,3})$ &&
-       $begin -lt 1440 && $end -lt 1440 && $begin != "$end" && $(cat "$1") == "$begin $end" ]]
+    regular "$1" && [[ $(stat -c %a "$1") == 600 ]] || return 1
+    local bytes='' pattern=$'^(0|[1-9][0-9]{0,3}) (0|[1-9][0-9]{0,3})\n$'
+    # An editor may atomically replace this file. Validate one bounded snapshot,
+    # requiring EOF before eleven bytes and rejecting embedded NUL.
+    if IFS= read -r -d '' -n 11 bytes < "$1"; then return 1; fi
+    [[ $bytes =~ $pattern ]] || return 1
+    begin=${BASH_REMATCH[1]}; end=${BASH_REMATCH[2]}
+    [[ $begin -lt 1440 && $end -lt 1440 && $begin != "$end" ]]
 }
 prop() { systemctl show "$UNIT" --property="$1" --value; }
 # systemctl show may itself return 4 for a nonexistent transient unit.
@@ -149,7 +152,7 @@ owner_pid() {
     local pid args
     pid=$(prop MainPID) && [[ $pid =~ ^[1-9][0-9]*$ ]] || return 1
     [[ $(readlink -f "/proc/$pid/exe") == $(readlink -f /bin/bash) ]] || return 1
-    args=$(printf '%s\0' /bin/bash -s -- samshush-art-quiet-hours "$begin" "$end" | sha256sum | cut -d ' ' -f 1)
+    args=$(printf '%s\0' /bin/bash -s -- samshush-art-quiet-hours | sha256sum | cut -d ' ' -f 1)
     [[ $(hash "/proc/$pid/cmdline") == "$args" ]] || return 1
     printf '%s' "$pid"
 }
@@ -158,16 +161,16 @@ owner_pid() {
 RUNNER = r"""
 identity
 private_dir "$ROOT" && private_dir "$RUN" && read_config "$ROOT/config" || fail 'Invalid service configuration'
-[[ $# == 3 && $1 == samshush-art-quiet-hours && $2 == "$begin" && $3 == "$end" ]] || fail 'Quiet-hours arguments changed'
+[[ $# == 1 && $1 == samshush-art-quiet-hours ]] || fail 'Quiet-hours arguments changed'
 boot_id=$(cat /proc/sys/kernel/random/boot_id)
 runner_pid=$$
 # Keep only the current process's readiness and latest event. The managed runtime
 # also writes GC diagnostics to stdout; those do not attest to worker readiness.
 set +e
-/usr/bin/dotnet "$ROOT/ArtQuietHours.dll" run "$begin" "$end" 2>&1 | while IFS= read -r line; do
+/usr/bin/dotnet "$ROOT/ArtQuietHours.dll" run 2>&1 | while IFS= read -r line; do
     case "$line" in
         QUIET_HOURS_READY)
-            printf '%s %s %s %s\n' "$boot_id" "$runner_pid" "$begin" "$end" > "$RUN/ready.tmp" && mv -f "$RUN/ready.tmp" "$RUN/ready" || exit 1;;
+            printf '%s %s\n' "$boot_id" "$runner_pid" > "$RUN/ready.tmp" && mv -f "$RUN/ready.tmp" "$RUN/ready" || exit 1;;
         QUIET_HOURS_*) printf '%.512s\n' "$line" > "$RUN/latest.tmp" && mv -f "$RUN/latest.tmp" "$RUN/latest" || exit 1;;
     esac
 done
@@ -197,7 +200,7 @@ rm -f -- "$RUN/ready" "$RUN/ready.tmp" "$RUN/latest" "$RUN/latest.tmp" "$RUN/exi
 systemd-run --no-block --collect --unit="$UNIT" --description="$DESC" --property=Type=simple \
     --property=Restart=on-failure --property=RestartSec=60 --property=StartLimitIntervalSec=900 \
     --property=StartLimitBurst=3 --property=TimeoutStopSec=8 --property=KillMode=control-group \
-    /bin/bash -c 'exec /bin/bash -s -- samshush-art-quiet-hours "$@" < <(cat "$0")' "$ROOT/runner" "$begin" "$end"
+    /bin/bash -c 'exec /bin/bash -s -- samshush-art-quiet-hours < <(cat "$0")' "$ROOT/runner"
 """
 
 CONTROL = r"""
@@ -303,7 +306,7 @@ immutable() {
             ArtQuietHours.dll|ArtQuietHours.runtimeconfig.json|runner|boot|handoff|stock.wrapper|privacy.launch|original|original.manifest|bridge.manifest|managed.manifest|preimages.sha256|config|config.tmp|mode|phase|phase.tmp|previous|previous.tmp) ;;
             *) fail 'Unexpected quiet-hours recovery entry';;
         esac
-        regular "$path" || fail 'Unsafe quiet-hours recovery entry'
+        regular "$path" || [[ $name == config.tmp && ! -e $path && ! -L $path ]] || fail 'Unsafe quiet-hours recovery entry'
     done
     shopt -u nullglob dotglob
     (cd "$ROOT" && sha256sum -c - >/dev/null <<'QH_FILES'
@@ -387,9 +390,10 @@ ready() {
     local pid stamp
     read_config "$ROOT/config" && [[ $(load_state) == loaded && $(prop ActiveState) == active ]] && unit_owned &&
         pid=$(owner_pid) && private_dir "$RUN" && regular "$RUN/ready" || return 1
-    stamp="$(cat /proc/sys/kernel/random/boot_id) $pid $begin $end"
+    stamp="$(cat /proc/sys/kernel/random/boot_id) $pid"
     [[ $(cat "$RUN/ready") == "$stamp" ]] || return 1
-    echo "QUIET_HOURS_READY=$stamp"
+    ready_receipt="QUIET_HOURS_READY=$stamp $begin $end"
+    echo "$ready_receipt"
 }
 start_worker() {
     cat "$ROOT/boot" | /bin/bash -s -- control || fail 'Could not queue quiet-hours service'
@@ -400,13 +404,16 @@ start_worker() {
 recover_failure() {
     local kind=$1
     verify_point either
-    stop_worker
     if [[ $kind == install ]]; then
+        stop_worker
         switch_to original
         phase_set rolled-back
     else
-        read_config "$ROOT/previous" || fail 'Prior quiet-hours config missing'
-        config_set "$begin" "$end"
+        if [[ $kind == update ]]; then
+            stop_worker
+            read_config "$ROOT/previous" || fail 'Prior quiet-hours config missing'
+            config_set "$begin" "$end"
+        fi
         if [[ $old_active == 1 ]]; then start_worker; fi
         phase_set active
         rm -f -- "$ROOT/previous"
@@ -490,12 +497,15 @@ else
     verify_point managed
     if ready >/dev/null; then old_active=1; fi
     if [[ $old_active == 1 && $begin == "$START" && $end == "$END" ]]; then
-        window_report "$begin" "$end"; ready; echo QUIET_HOURS_STATE=active; exit 0
+        window_report "$begin" "$end"; echo "$ready_receipt"; echo QUIET_HOURS_STATE=active; exit 0
     fi
-    cp --preserve=all "$ROOT/config" "$ROOT/previous.tmp" && mv -f "$ROOT/previous.tmp" "$ROOT/previous"
     phase_set updating
-    rollback=update
+    # A Home edit may finish while the worker is stopping. Snapshot only after
+    # systemd has collected the unit, so rollback retains the last accepted edit.
+    rollback=resume
     stop_worker
+    cp --preserve=all "$ROOT/config" "$ROOT/previous.tmp" && mv -f "$ROOT/previous.tmp" "$ROOT/previous" || fail 'Could not save prior quiet-hours config'
+    rollback=update
     config_set "$START" "$END"
 fi
 start_worker

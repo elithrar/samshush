@@ -268,6 +268,18 @@ is `/opt/usr/share/samshush-quiet-hours-v1`. Use `quiet-hours remove` before
 installing or removing the privacy startup hook. Both features use the verified
 AT-HUB startup path. Quiet hours saves the previous handoff for exact restoration.
 
+The custom Home screen reads and edits the installed schedule through two files
+in its Tizen `wgt-private` directory. Down from Art Mode selects Sleep, then
+Wake. Left and Right change the hour and preserve any minutes set by the CLI.
+The optional controls appear after the worker responds. The worker validates
+the request, checks the prior times and worker session, and replies with the
+saved hours. It alone writes Home edits to the root-owned configuration.
+
+To upgrade an installation made with the original quiet-hours CLI (commit
+`4b027b0`), read its hours with that revision's `quiet-hours status`, then run
+its `quiet-hours remove`. Use the current CLI to `set` the same hours. The
+controller verifies the installed worker and boot files against its own hashes.
+
 For a live timing test, observe Apple TV playback across the start of a window,
 then switch to full-screen Art and verify standby. Record the local time, actual
 window, input evidence and how standby was observed.
@@ -278,7 +290,9 @@ CEC. Switching to full-screen Art then produced standby and a recorded kernel
 suspend. A separate test verified standby for artwork already on screen when
 the window began. Both tests used the installed worker and kept the permanent
 hours in place. Movie playback position and startup after a full reboot still
-need separate verification.
+need separate verification. In a separate Home test, both selectors changed
+from 22:00–07:00 to 23:00–08:00. CLI status read back the new hours before
+the original window was restored through Home.
 
 ## Automatic boot reapplication
 

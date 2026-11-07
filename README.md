@@ -133,6 +133,8 @@ uv run --project tools tools/frame.py --tv 192.0.2.10 --callback-host 192.0.2.20
 
 Apple TV can keep playing through 10 PM. If you finish watching and switch to Art during quiet hours, the TV goes into standby. At 7 AM, a sleeping TV stays asleep until you wake it. Use `quiet-hours status` to check the schedule, repeat `set` to change the hours, or use `quiet-hours remove` to turn it off.
 
+With quiet hours installed, the custom Home screen shows **Sleep** and **Wake** below Art Mode. Press Down from Art Mode to select Sleep, then Down again for Wake. Left and Right change the selected time by one hour. The CLI and Home use the same schedule.
+
 ## Optional package removal
 
 `packages prepare --backup-dir PATH` disables and stops six assessed packages,

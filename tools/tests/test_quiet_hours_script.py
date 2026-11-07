@@ -47,7 +47,13 @@ mv() {
 sync() { :; }
 sleep() { :; }
 systemctl() {
-    if [[ $1 == stop ]]; then printf 'stop\n' >> "$QH_TEST/events"; rm -f "$QH_TEST/unit"; return; fi
+    if [[ $1 == stop ]]; then
+        printf 'stop\n' >> "$QH_TEST/events"
+        if [[ -f $QH_TEST/edit-on-stop ]]; then
+            mv "$QH_TEST/edit-on-stop" "$ROOT/config"
+        fi
+        rm -f "$QH_TEST/unit"; return
+    fi
     if [[ $1 == show && $2 != "$UNIT" ]]; then
         if [[ -e $QH_TEST/privacy-queued ]]; then printf 'LoadState=loaded\nActiveState=activating\nJob=4\n'
         else printf 'LoadState=loaded\nActiveState=failed\nJob=\n'; fi; return
@@ -56,14 +62,17 @@ systemctl() {
     local key=${3#--property=}
     if [[ ! -f $QH_TEST/unit ]]; then if [[ $key == LoadState ]]; then echo not-found; return 4; fi; return 1; fi
     case "$key" in
-        LoadState) echo loaded;; ActiveState) echo active;; MainPID) echo 321;; Transient) echo yes;;
+        LoadState) echo loaded;; ActiveState) echo active;; Transient) echo yes;;
+        MainPID)
+            if [[ -f $QH_TEST/edit-during-ready ]]; then mv "$QH_TEST/edit-during-ready" "$ROOT/config"; fi
+            echo 321;;
         Description) if [[ -f $QH_TEST/foreign ]]; then echo Other; else echo "$DESC"; fi;;
-        ExecStart) printf '{ path=/bin/bash ; argv[]=/bin/bash -c exec /bin/bash -s -- samshush-art-quiet-hours "$@" < <(cat "$0") %s/runner %s ; ignore_errors=no ; }\n' "$ROOT" "$(cat "$QH_TEST/unit")";;
+        ExecStart) printf '{ path=/bin/bash ; argv[]=/bin/bash -c exec /bin/bash -s -- samshush-art-quiet-hours < <(cat "$0") %s/runner ; ignore_errors=no ; }\n' "$ROOT";;
         *) return 1;;
     esac
 }
 systemd-run() {
-    local a b; a=${@: -2:1}; b=${@: -1:1}
+    local a b; read -r a b < "$ROOT/config" || return 1
     printf 'start %s %s\n' "$a" "$b" >> "$QH_TEST/events"
     [[ ! -f $QH_TEST/reject || $(cat "$QH_TEST/reject") != "$a $b" ]] || return 1
     [[ ! -f $QH_TEST/unit ]] || return 1
@@ -74,8 +83,8 @@ systemd-run() {
     printf '%s %s\n' "$a" "$b" > "$QH_TEST/unit"
     mkdir -p "$QH_TEST/proc/321"
     ln -sf /bin/bash "$QH_TEST/proc/321/exe"
-    printf '%s\0' /bin/bash -s -- samshush-art-quiet-hours "$a" "$b" > "$QH_TEST/proc/321/cmdline"
-    printf '%s 321 %s %s\n' "$(cat "$QH_TEST/boot-id")" "$a" "$b" > "$RUN/ready"
+    printf '%s\0' /bin/bash -s -- samshush-art-quiet-hours > "$QH_TEST/proc/321/cmdline"
+    printf '%s 321\n' "$(cat "$QH_TEST/boot-id")" > "$RUN/ready"
 }
 """
 
@@ -106,7 +115,7 @@ class QuietHoursLifecycleTests(unittest.TestCase):
         (self.base / "boot-id").write_text("boot-a\n")
         self.dotnet = self.base / "dotnet"
         self.dotnet.write_text(
-            "#!/bin/bash\ncase $2 in check) echo 'QUIET_HOURS_CHECK={\"schema\":1}';; run) echo QUIET_HOURS_READY;; *) exit 1;; esac\n"
+            "#!/bin/bash\ncase $2 in check) echo 'QUIET_HOURS_CHECK={\"schema\":1}';; run) [[ $# == 2 ]] && echo QUIET_HOURS_READY;; *) exit 1;; esac\n"
         )
         self.dotnet.chmod(0o755)
         substitutions = {
@@ -313,6 +322,46 @@ class QuietHoursLifecycleTests(unittest.TestCase):
         self.assertEqual((self.state / "phase").read_text(), "rolled-back\n")
         self.action("remove")
         self.assertFalse(self.state.exists())
+
+    def test_home_edit_is_immediately_visible_to_status_and_survives_failed_cli_update(
+        self,
+    ):
+        self.action("set", 1320, 420)
+        config = self.state / "config"
+        config.write_text("1200 360\n")
+        events = (self.base / "events").read_bytes()
+        self.assertIn("QUIET_HOURS_WINDOW=1200 360", self.action("status"))
+        self.action("set", 1200, 360)
+        self.assertEqual((self.base / "events").read_bytes(), events)
+        # Simulate a second accepted Home edit immediately before SIGTERM completes.
+        edit = self.base / "edit-on-stop"
+        edit.write_text("1230 375\n")
+        edit.chmod(0o600)
+        (self.base / "reject").write_text("1290 435\n")
+        self.assertIn(
+            "QUIET_HOURS_ROLLBACK=verified", self.action("set", 1290, 435, okay=False)
+        )
+        self.assertIn("QUIET_HOURS_WINDOW=1230 375", self.action("status"))
+        self.assertEqual(config.read_bytes(), b"1230 375\n")
+
+    def test_status_rejects_malformed_and_unterminated_effective_schedule(self):
+        self.action("set", 1320, 420)
+        for invalid in (b"1320 420", b"013 42\n", b"3 3\n", b"3 42\n\n", b"3\x00 42\n"):
+            with self.subTest(invalid=invalid):
+                (self.state / "config").write_bytes(invalid)
+                self.assertIn(
+                    "Invalid quiet-hours receipt", self.action("status", okay=False)
+                )
+
+    def test_same_window_set_reports_one_snapshot_during_a_home_edit(self):
+        self.action("set", 1320, 420)
+        edit = self.base / "edit-during-ready"
+        edit.write_text("1380 420\n")
+        edit.chmod(0o600)
+        receipt = self.action("set", 1320, 420)
+        self.assertIn("QUIET_HOURS_WINDOW=1320 420", receipt)
+        self.assertIn("QUIET_HOURS_READY=boot-a 321 1320 420", receipt)
+        self.assertIn("QUIET_HOURS_WINDOW=1380 420", self.action("status"))
 
     def test_drift_refuses_replacement_and_unrelated_service_stop(self):
         self.privacy_install()

@@ -9,6 +9,7 @@
     <link rel="icon" href="data:,">
     <link rel="stylesheet" href="styles.css">
     <script src="device.js" defer></script>
+    <script src="time-controls.js" defer></script>
     <script src="ui.js" defer></script>
     <script src="weather.js" defer></script>
   </head>
@@ -119,6 +120,14 @@
             <span class="tile-label">Art Mode</span>
           </button>
         </nav>
+        <div class="time-controls" hidden role="group" aria-label="Art Mode schedule">
+          <button type="button" class="time-control" data-time="start" tabindex="-1" role="spinbutton" aria-valuemin="0" aria-valuemax="1439" aria-label="Sleep time">
+            <span>Sleep</span><span class="time-value"></span>
+          </button>
+          <button type="button" class="time-control" data-time="end" tabindex="-1" role="spinbutton" aria-valuemin="0" aria-valuemax="1439" aria-label="Wake time">
+            <span>Wake</span><span class="time-value"></span>
+          </button>
+        </div>
       </section>
       <p class="action-error" id="action-error" role="alert" hidden></p>
     </main>
