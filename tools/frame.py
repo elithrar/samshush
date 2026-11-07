@@ -9,6 +9,7 @@ import hashlib
 import ipaddress
 import json
 import os
+import re
 import secrets
 import shlex
 import shutil
@@ -174,6 +175,13 @@ def check_result(result):
             )
 
 
+def minute_of_day(value):
+    if not re.fullmatch(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]", value):
+        raise argparse.ArgumentTypeError("Use a local time in 24-hour HH:MM format")
+    hour, minute = value.split(":")
+    return int(hour) * 60 + int(minute)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -318,6 +326,22 @@ def main():
         type=Path,
         help="Previously installed signed widget; required only for update",
     )
+    quiet = sub.add_parser(
+        "quiet-hours", help="Put full-screen Art in standby during a daily window"
+    )
+    quiet.add_argument("operation", choices=("inspect", "set", "status", "remove"))
+    quiet.add_argument(
+        "--start",
+        type=minute_of_day,
+        metavar="HH:MM",
+        help="Start of quiet hours, local 24-hour time (inclusive)",
+    )
+    quiet.add_argument(
+        "--end",
+        type=minute_of_day,
+        metavar="HH:MM",
+        help="End of quiet hours, local 24-hour time (exclusive)",
+    )
     sensor = sub.add_parser(
         "sound-sensor",
         help="Separately block or restore the ambient-sound capture app",
@@ -328,6 +352,14 @@ def main():
         help="Install eight vendor startup guards after a completed app apply",
     )
     args = parser.parse_args()
+    if args.action == "quiet-hours":
+        if args.operation == "set":
+            if args.start is None or args.end is None or args.start == args.end:
+                parser.error(
+                    "quiet-hours set requires distinct --start and --end times"
+                )
+        elif args.start is not None or args.end is not None:
+            parser.error("--start and --end are only valid with quiet-hours set")
     if args.action == "launchpad":
         needs_widget = args.operation in ("install", "update", "activate")
         if needs_widget != (args.widget is not None):
@@ -416,7 +448,30 @@ def main():
         "completed": False,
     }
     try:
-        if args.action == "startup" and args.operation in ("audit", "probe"):
+        if args.action == "quiet-hours":
+            import home_layout
+            import quiet_hours_script
+
+            if policy()["model"] != home.MODEL or policy()["build"] != home.BUILD:
+                raise ValueError(
+                    "Art quiet hours require the verified Frame Pro model and build"
+                )
+            home_layout.verify_model(args.tv)
+            script = quiet_hours_script.render(
+                args.operation,
+                start=args.start,
+                end=args.end,
+                assets={
+                    name: (payloads / name).read_bytes()
+                    for name in (
+                        "ArtQuietHours.dll",
+                        "ArtQuietHours.runtimeconfig.json",
+                    )
+                },
+            )
+            # Run alongside the native screen and power services in PID 1's mount namespace.
+            command = home_layout.device_command(script)
+        elif args.action == "startup" and args.operation in ("audit", "probe"):
             template = (
                 device_scripts.STARTUP_AUDIT
                 if args.operation == "audit"
@@ -494,7 +549,9 @@ def main():
                     ASSETS / "certificates" / cert["file"], stage / cert["file"]
                 )
         # The stage path is generated here and consists solely of fixed path text and hex.
-        script = f"export FRAME_STAGE={shlex.quote(str(stage))}\n" + script
+        if args.action != "quiet-hours":
+            script = f"export FRAME_STAGE={shlex.quote(str(stage))}\n" + script
+            command = wrapped(script)
         print(
             "Acquiring temporary root. Even inspect/status execute the root exploit.",
             flush=True,
@@ -507,7 +564,7 @@ def main():
                 # even while an authorized command is still within its budget.
                 accept_timeout=180,
                 command_timeout=180,
-                commands=(wrapped(script),),
+                commands=(command,),
                 payloads=payloads,
             )
         )

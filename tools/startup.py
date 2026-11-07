@@ -182,6 +182,9 @@ if [[ $ACTION == run ]]; then
 fi
 mkdir -m 700 "$LOCK" || fail 'Startup operation already running or interrupted'
 operation_locked=1
+if [[ -e /opt/usr/share/samshush-quiet-hours-v1 || -L /opt/usr/share/samshush-quiet-hours-v1 ]]; then
+    fail 'Remove Art quiet hours before changing the shared boot handoff'
+fi
 if [[ $ACTION == remove ]]; then
     [[ -d $ROOT && ! -L $ROOT ]] || fail 'No startup installation to remove'
     [[ $(stat -c '%u:%a' "$ROOT") == 0:700 ]] || fail 'Unsafe startup directory'

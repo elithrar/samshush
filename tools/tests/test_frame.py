@@ -18,6 +18,28 @@ spec.loader.exec_module(frame)
 
 
 class HostTests(unittest.TestCase):
+    def test_quiet_hours_reject_invalid_or_ambiguous_times_before_tv_access(self):
+        for arguments in (
+            ["set"],
+            ["set", "--start", "22:00"],
+            ["set", "--start", "22:00", "--end", "22:00"],
+            ["set", "--start", "22:00", "--end", "24:00"],
+            ["set", "--start", "06:60", "--end", "07:00"],
+            ["remove", "--end", "07:00"],
+        ):
+            with (
+                self.subTest(arguments=arguments),
+                patch.object(
+                    frame.sys, "argv", ["frame.py", "quiet-hours", *arguments]
+                ),
+                patch.object(frame, "verify_files") as verify,
+                patch("sys.stderr", new_callable=io.StringIO),
+                self.assertRaises(SystemExit) as raised,
+            ):
+                frame.main()
+            self.assertEqual(raised.exception.code, 2)
+            verify.assert_not_called()
+
     def test_launchpad_widget_and_previous_widget_require_their_operations(self):
         for arguments in (
             ["launchpad", "install"],

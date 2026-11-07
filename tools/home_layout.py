@@ -166,7 +166,7 @@ def verify_model(tv):
             or not isinstance(identity.get("device"), dict)
             or identity["device"].get("modelName") != MODEL
         ):
-            raise ValueError("Home layout requires the verified TV model")
+            raise ValueError(f"Expected Samsung TV model {MODEL}")
     finally:
         connection.close()
 
@@ -224,7 +224,7 @@ def device_command(script):
     pipeline = f"printf %s {encoded} | base64 -d | gzip -dc | nsenter --mount=/proc/1/ns/mnt /bin/bash"
     command = "/bin/bash -o pipefail -c " + shlex.quote(pipeline)
     if len(command.encode()) > 65536:
-        raise ValueError("Home transaction exceeds the transport command bound")
+        raise ValueError("TV command exceeds the transport command bound")
     return command
 
 

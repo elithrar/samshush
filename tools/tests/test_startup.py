@@ -199,6 +199,18 @@ else: sys.exit(99)
         self.assertEqual(self.hook.read_bytes(), self.original)
         self.assertFalse(self.boot.exists())
 
+    def test_quiet_hours_requires_its_own_removal_before_shared_hook_changes(self):
+        quiet = self.device / "opt/usr/share/samshush-quiet-hours-v1"
+        quiet.mkdir()
+        self.assertIn("Remove Art quiet hours", self.action("install").stderr)
+        quiet.rmdir()
+        self.install()
+        installed = self.hook.read_bytes()
+        quiet.mkdir()
+        self.assertIn("Remove Art quiet hours", self.action("remove").stderr)
+        self.assertEqual(self.hook.read_bytes(), installed)
+        self.assertTrue((self.boot / "installed").is_file())
+
     def test_rejects_partial_or_different_scope_without_touching_hook(self):
         for complete, unit in ((False, "voice.service"), (True, "unreviewed.service")):
             with self.subTest(complete=complete):

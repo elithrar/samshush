@@ -18,5 +18,7 @@
   "payloads/SamsungTvRootAgent.dll": "fd3690c28084ada12c8eb50a64bb9e6be6702a8e9b9d405cf21dbe3827ba83dc",
   "vdfs-unpack.patch": "e4de4c12aaa6ca155305ddce0221ab38ca25c7ccecbaad5b71d5d3e8ffcc20df",
   "payloads/LaunchpadRouting.dll": "2957f19555a8de57acde0723ac13ca1792ecd0cc26763703e66eb5b7f8937fd0",
-  "payloads/LaunchpadRouting.runtimeconfig.json": "8ebf1afc4a8bfef5f6a7995da4e039ba5be15d2700e72c19dc308c7a21c01271"
+  "payloads/LaunchpadRouting.runtimeconfig.json": "8ebf1afc4a8bfef5f6a7995da4e039ba5be15d2700e72c19dc308c7a21c01271",
+  "payloads/ArtQuietHours.dll": "56b9b025cf523255b79eb7ae6d4cbaefb0267622e02d248fb11600f6878372fc",
+  "payloads/ArtQuietHours.runtimeconfig.json": "8ebf1afc4a8bfef5f6a7995da4e039ba5be15d2700e72c19dc308c7a21c01271"
 }

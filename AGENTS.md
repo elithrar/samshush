@@ -81,6 +81,7 @@ and device identifiers; do not publish them in a Gist or commit them.
 | `auto-update status/disable/restore` | Read or set the native Auto Update option; preserve its original value and leave manual updater services intact. |
 | `home inspect/install/status/remove` | Optional startup preferences (`install --startup-only`) or Apple TV shortcut row (`--apple-tv-only` on each command). Separate persistent journals; native Home is retained. |
 | `launchpad inspect/install/update/launch/activate/status/restore` | Separate full-screen app. Install requires a signed matching widget; activation assigns Home only after native action/fallback checks. Restore reinstates the original Home assignment and leaves the app installed. |
+| `quiet-hours inspect/set/status/remove` | Schedule standby for full-screen Art on the supported Frame Pro. Use `set --start HH:MM --end HH:MM` to install or change the daily window. |
 | `startup install/status/run/remove` | Save currently applied runtime scopes for automatic boot reapplication, inspect it, test the installed startup path, or restore the original startup script. |
 | `restore` | Remove recorded runtime masks/overlays and restart units that were previously active. Requires startup removal first when installed. |
 | `apps restore` | Remove recorded startup guards, restore app flags and restart previously running apps. |
@@ -247,6 +248,38 @@ Fresh reboot checks remain pending.
 Startup-preference install/remove and wake behavior remain unverified.
 No TV changes are authorized merely by including this optional module.
 
+## Art quiet hours
+
+Use the TV's local clock. For example, `quiet-hours set --start 22:00 --end 07:00`
+includes 22:00 and ends at 07:00 the following morning. The worker checks the
+current display before requesting Art-to-standby. A TV already in standby stays
+asleep when the window ends. The normal Samsung Off Timer is disabled in Art
+Mode. The separate native Ambient routine timer can expire during HDMI playback.
+
+The worker requires two matching foreground and native screen-state readings.
+It checks the clock and the age of the final reading before calling Samsung’s
+Art-to-standby power API. The call accepts a power reason only. A simultaneous
+source switch can race the interval between the final observation and delivery
+to the power service.
+
+`quiet-hours inspect` reads the active display. `quiet-hours status` checks the
+installed boot handoff, saved hours and running service. The separate receipt
+is `/opt/usr/share/samshush-quiet-hours-v1`. Use `quiet-hours remove` before
+installing or removing the privacy startup hook. Both features use the verified
+AT-HUB startup path. Quiet hours saves the previous handoff for exact restoration.
+
+For a live timing test, observe Apple TV playback across the start of a window,
+then switch to full-screen Art and verify standby. Record the local time, actual
+window, input evidence and how standby was observed.
+
+On the supported TV, a daytime test confirmed HDMI 1 and the focused TV viewer
+before the boundary and again 49 seconds inside it, with Apple TV identified on
+CEC. Switching to full-screen Art then produced standby and a recorded kernel
+suspend. A separate test verified standby for artwork already on screen when
+the window began. Both tests used the installed worker and kept the permanent
+hours in place. Movie playback position and startup after a full reboot still
+need separate verification.
+
 ## Automatic boot reapplication
 
 When explicitly requested, use `startup install` after applying and verifying the
@@ -392,6 +425,11 @@ host-verified backup in a separate returned-package attempt. All six original
 packages passed registration, path and process-absence checks. The original
 receipt and backup remain intact. Their installation history confirms separate
 reinstalls, so do not describe removal alone as persistent prevention.
+
+On the November 7 quiet-hours preflight, the privacy worker had finished all
+enrolled runtime groups on a new boot. Its package check reported
+`com.samsung.tv.screen-analysis-dbmgr-nb` registered again. The worker recorded
+failure for that boot. Check the package receipt before any further removal.
 
 The screen-analysis manager requests the non-branded model through WAS when its
 network subscriber connects, independent of the app auto-update preference. It
