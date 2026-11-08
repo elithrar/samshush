@@ -17,6 +17,9 @@ internal static class QuietHoursTests {
         123, 840UL, 5001, "org.tizen.art-app", "/usr/bin/dotnet-launcher-inhouse",
         "/opt/usr/apps/org.tizen.art-app/bin/ArtApp.dll");
     static readonly W.View Art = new W.View(4, 0, 2, 0, 1, Artist);
+    static readonly W.Focus Saver = new(456, 910, 5001, "com.samsung.tv.spotlight-ss",
+        "/usr/bin/dotnet-launcher-inhouse", "/usr/apps/com.samsung.tv.spotlight-ss/bin/ScreenSaverContent.dll");
+    static readonly W.View Spotlight = new(0, 0, 0, 0, 0, Saver, true);
 
     static void Check(bool condition, string message) {
         if (!condition) throw new Exception(message);
@@ -30,13 +33,16 @@ internal static class QuietHoursTests {
         public W.Hours Hours = new(Start, End);
         public bool Stopped;
         public int NativeResult;
-        public int Requests;
+        public int Requests, Handoffs, Reads;
+        public bool AllowHandoff;
         public long ElapsedMs = 100_000, SuspendedMs;
 
         public string Step(Action? transition = null) {
-            return Policy.Step(() => W.InWindow(Minute, Hours.Start, Hours.End), () => View,
+            return Policy.Step(() => W.InWindow(Minute, Hours.Start, Hours.End), () => { Reads++; return View; },
                 () => transition?.Invoke(), () => Stopped,
-                () => { Requests++; return NativeResult; }, ElapsedMs, SuspendedMs);
+                () => { Requests++; return NativeResult; }, ElapsedMs, SuspendedMs, launchArt: AllowHandoff
+                    ? focus => { Check(focus == Saver, "wrong handoff identity"); Handoffs++; return NativeResult; } : null,
+                saverVisible: () => View.ScreenSaverOn == true);
         }
     }
 
@@ -54,7 +60,7 @@ internal static class QuietHoursTests {
     static void Classification() {
         Check(W.Classify(Art) == "art", "confirmed fullscreen Art was excluded");
         var image = Artist with { App = "com.samsung.tv.contentimageapp",
-            ArtDll = "/usr/apps/com.samsung.tv.contentimageapp/bin/ContentImageApp.dll" };
+            Assembly = "/usr/apps/com.samsung.tv.contentimageapp/bin/ContentImageApp.dll" };
         Check(W.Classify(Art with { Focus = image }) == "art", "verified artwork renderer was excluded");
         foreach (var view in new[]{
             Art with { ModeType = 0 },                     // regular TV/input
@@ -64,12 +70,12 @@ internal static class QuietHoursTests {
             Art with { AmbientMode = 0 },                  // regular TV with stale screen state
             Art with { Focus = Artist with { App = "com.samsung.tv.csfs" } },
             Art with { Focus = Artist with { App = "org.tizen.tv-viewer" } },
-            Art with { Focus = image with { ArtDll = Artist.ArtDll } },
+            Art with { Focus = image with { Assembly = Artist.ArtDll } },
             Art with { ScreenRc = -1 },
             Art with { Focus = null },
             Art with { Focus = Artist with { Uid = 0 } },
             Art with { Focus = Artist with { Exe = "/tmp/dotnet-launcher-inhouse" } },
-            Art with { Focus = Artist with { ArtDll = "/tmp/ArtApp.dll" } }
+            Art with { Focus = Artist with { Assembly = "/tmp/ArtApp.dll" } }
         }) {
             var tv = new TV { View = view };
             string state = W.Classify(view);
@@ -107,6 +113,60 @@ internal static class QuietHoursTests {
             tv.Step(() => change(tv));
             Check(tv.Requests == 0, "confirmation used stale state");
         }
+    }
+
+    static void SpotlightPolicy() {
+        string dll = Saver.Assembly;
+        Check(W.AssemblyArgument(Saver.App, new[]{dll, "--", dll}) == dll &&
+            W.AssemblyArgument(Saver.App, new[]{"/tmp/" + dll}) == "", "exact saver assembly");
+        var disabled = new TV { View = Spotlight };
+        disabled.Step();
+        Check(disabled.Requests == 0 && disabled.Handoffs == 0, "handoff requires opt-in");
+        disabled.View = Art;
+        disabled.Step();
+        disabled.View = Spotlight with { ScreenSaverOn = null }; // bare worker never reads the flag
+        disabled.Step();
+        disabled.View = Art;
+        Check(disabled.Step() == "requested" && disabled.Requests == 2,
+            "unchecked Spotlight retained the opt-out worker's old Art latch");
+        foreach (int minute in new[]{Start, End}) {
+            var tv = new TV { View = Spotlight, Minute = minute, AllowHandoff = true };
+            Check(tv.Step() == "handoff-requested" && tv.Handoffs == 1 && tv.Requests == 0, "handoff at both times");
+            Check(tv.Step() == "cooldown" && tv.Handoffs == 1, "repeated an accepted handoff");
+            tv.View = Art;
+            tv.Step();
+            Check(tv.Requests == (minute == Start ? 1 : 0), "Art standby scope or latch crossed with handoff");
+        }
+        var overlay = new TV { View = Art with { ScreenSaverOn = true }, AllowHandoff = true };
+        overlay.Step();
+        Check(overlay.Requests == 0 && overlay.Handoffs == 0, "standby with the screensaver still active");
+        overlay.View = Art with { ScreenSaverReadFailed = true };
+        overlay.Step();
+        Check(overlay.Requests == 0, "standby without a valid compositor reading");
+        foreach (var wrong in new[]{Spotlight with { ScreenSaverOn = null }, Spotlight with { ScreenSaverOn = false },
+            Spotlight with { PowerState = 1 }, Spotlight with { AmbientMode = 1 }, Spotlight with { ModeType = 4 },
+            Spotlight with { ScreenState = 2 }, Spotlight with { ScreenRc = -1 },
+            Spotlight with { Focus = Saver with { Assembly = "/tmp/ScreenSaverContent.dll" } },
+            Spotlight with { Focus = Saver with { Exe = "/usr/bin/dotnet" } },
+            Spotlight with { Focus = Saver with { Uid = 0 } },
+            Spotlight with { Focus = Saver with { App = "org.tizen.tv-viewer" } }}) {
+            var tv = new TV { View = wrong, AllowHandoff = true };
+            tv.Step();
+            Check(tv.Handoffs == 0 && tv.Requests == 0, "unverified saver caused action");
+        }
+        foreach (var changed in new[]{Art, Spotlight with { ScreenSaverOn = false },
+            Spotlight with { Focus = Saver with { StartTicks = 9000 } }}) {
+            var tv = new TV { View = Spotlight, AllowHandoff = true };
+            tv.Step(() => tv.View = changed);
+            Check(tv.Handoffs == 0 && tv.Requests == 0, "stale handoff on dismissal or PID reuse");
+        }
+        var failed = new TV { View = Spotlight, Minute = End, AllowHandoff = true, NativeResult = 1 };
+        Check(failed.Step() == "handoff-failed" && failed.Step() == "cooldown", "unbounded failed retries");
+        failed.ElapsedMs += 60000; failed.NativeResult = 0;
+        Check(failed.Step() == "handoff-requested" && failed.Handoffs == 2, "retry never re-enabled");
+        var ordinary = new TV { View = Spotlight with { ScreenSaverOn = false }, Minute = End, AllowHandoff = true };
+        ordinary.Step();
+        Check(ordinary.Reads == 0, "unnecessary daytime foreground query");
     }
 
     static void StaleObservation() {
@@ -204,6 +264,7 @@ internal static class QuietHoursTests {
             case "classification": Classification(); break;
             case "art-arguments": ArtArguments(); break;
             case "recheck": Recheck(); break;
+            case "spotlight": SpotlightPolicy(); break;
             case "stale-observation": StaleObservation(); break;
             case "fresh-session": FreshSession(); break;
             case "resume": Resume(); break;
@@ -274,6 +335,7 @@ class QuietHoursWorkerTests(unittest.TestCase):
             "classification",
             "art-arguments",
             "recheck",
+            "spotlight",
             "stale-observation",
             "fresh-session",
             "resume",

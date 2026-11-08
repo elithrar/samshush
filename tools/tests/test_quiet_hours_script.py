@@ -84,7 +84,9 @@ systemd-run() {
     mkdir -p "$QH_TEST/proc/321"
     ln -sf /bin/bash "$QH_TEST/proc/321/exe"
     printf '%s\0' /bin/bash -s -- samshush-art-quiet-hours > "$QH_TEST/proc/321/cmdline"
-    printf '%s 321\n' "$(cat "$QH_TEST/boot-id")" > "$RUN/ready"
+    local boot pid spotlight
+    read -r boot pid spotlight < "$RUN/ready"
+    printf '%s 321 %s\n' "$boot" "$spotlight" > "$RUN/ready"
 }
 """
 
@@ -115,7 +117,20 @@ class QuietHoursLifecycleTests(unittest.TestCase):
         (self.base / "boot-id").write_text("boot-a\n")
         self.dotnet = self.base / "dotnet"
         self.dotnet.write_text(
-            "#!/bin/bash\ncase $2 in check) echo 'QUIET_HOURS_CHECK={\"schema\":1}';; run) [[ $# == 2 ]] && echo QUIET_HOURS_READY;; *) exit 1;; esac\n"
+            """#!/bin/bash
+case $2 in
+    check) echo 'QUIET_HOURS_CHECK={"schema":1}';;
+    run)
+        case ${3:-off} in
+            off) [[ $# == 2 ]] || exit 1;;
+            --spotlight-art) [[ $# == 3 && ! -e $QH_TEST/reject-spotlight ]] || exit 1;;
+            *) exit 1;;
+        esac
+        echo "${3:-off}" >> "$QH_TEST/worker-modes"
+        echo QUIET_HOURS_READY;;
+    *) exit 1;;
+esac
+"""
         )
         self.dotnet.chmod(0o755)
         substitutions = {
@@ -169,8 +184,10 @@ class QuietHoursLifecycleTests(unittest.TestCase):
             name: (self.privacy / name).read_bytes() for name in (*names, "SHA256SUMS")
         }
 
-    def action(self, name, start=None, end=None, *, okay=True):
-        script = qh.render(name, start=start, end=end, assets=ASSETS)
+    def action(self, name, start=None, end=None, *, spotlight_art=None, okay=True):
+        script = qh.render(
+            name, start=start, end=end, spotlight_art=spotlight_art, assets=ASSETS
+        )
         p = subprocess.run(
             ["/bin/bash"],
             input=script,
@@ -312,6 +329,51 @@ class QuietHoursLifecycleTests(unittest.TestCase):
             events,
             "Repeated set restarted the worker",
         )
+
+    def test_spotlight_opt_in_survives_edits_and_both_policies_rollback(self):
+        self.assertIn("QUIET_HOURS_SPOTLIGHT_ART=off", self.action("set", 1320, 420))
+        self.assertEqual((self.base / "worker-modes").read_text(), "off\n")
+        (self.base / "reject-spotlight").touch()
+        rejected = self.action("set", 1380, 430, spotlight_art=True, okay=False)
+        self.assertIn("QUIET_HOURS_ROLLBACK=verified", rejected)
+        readback = self.action("status")
+        self.assertIn("QUIET_HOURS_WINDOW=1320 420", readback)
+        self.assertIn("QUIET_HOURS_SPOTLIGHT_ART=off", readback)
+        (self.base / "reject-spotlight").unlink()
+
+        enabled = self.action("set", 1320, 420, spotlight_art=True)
+        self.assertIn("QUIET_HOURS_SPOTLIGHT_ART=on", enabled)
+        self.assertEqual(
+            (self.base / "worker-modes").read_text().splitlines()[-1], "--spotlight-art"
+        )
+        self.assertIn("QUIET_HOURS_SPOTLIGHT_ART=on", self.action("set", 1380, 480))
+        # A Home edit only changes the minute pair.
+        (self.state / "config").write_text("1380 390\n")
+        readback = self.action("status")
+        self.assertIn("QUIET_HOURS_WINDOW=1380 390", readback)
+        self.assertIn("QUIET_HOURS_SPOTLIGHT_ART=on", readback)
+        before = (self.base / "events").read_text()
+        self.action("set", 1380, 390, spotlight_art=True)
+        self.assertEqual((self.base / "events").read_text(), before)
+        self.assertIn(
+            "QUIET_HOURS_SPOTLIGHT_ART=off",
+            self.action("set", 1380, 390, spotlight_art=False),
+        )
+        self.assertEqual(
+            (self.base / "worker-modes").read_text().splitlines()[-1], "off"
+        )
+
+    def test_spotlight_policy_is_attested_by_running_worker(self):
+        self.action("set", 1320, 420, spotlight_art=True)
+        saved = self.state / "spotlight"
+        saved.write_bytes(b"off\n")
+        self.assertIn("not ready", self.action("status", okay=False))
+        for malformed in (b"on", b"on\n\x00", b"off\n\n", b"ON\n"):
+            with self.subTest(malformed=malformed):
+                saved.write_bytes(malformed)
+                self.assertIn(
+                    "Invalid quiet-hours receipt", self.action("status", okay=False)
+                )
 
     def test_failed_first_start_restores_original_boot_path(self):
         (self.base / "reject").write_text("1110 405\n")

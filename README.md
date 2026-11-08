@@ -93,7 +93,7 @@ Optional controls still require the owner’s approval on other installations.
 | Automatic firmware updates | Auto Update off; update manually | Check compatibility before installing firmware. An update can reset the changes or patch the root exploit. |
 | Home layout and startup | Optional native presets | An Apple TV-only row simplifies Samsung’s existing interface. The full-screen replacement below is separate; its Samsung Home fallback retains the original row. |
 | Full-screen shortcut Home | Optional replacement applied | Open Apple TV, HDMI ports, Settings and Art over a Monet background from the Home button. Back returns to Samsung Home; optional weather adds current conditions and today’s high/low. |
-| Art at night | Optional quiet hours | Choose the hours when full-screen artwork should put the Frame in standby. HDMI viewing can continue during that window. |
+| Art and the Spotlight screensaver | Optional quiet hours and automatic Art Mode | Choose when full-screen Art should put the Frame in standby. To replace Samsung’s idle Spotlight screensaver with artwork throughout the day, enable `--spotlight-art`. |
 | Settings, manual Art Mode, playback, browser, Netflix, networking, One Connect and DRM | Kept enabled | These provide the TV’s core functions. Preserve their shared runtimes and unrelated trust certificates. |
 
 Most app controls disable rather than uninstall. Six packages were uninstalled
@@ -132,6 +132,8 @@ uv run --project tools tools/frame.py --tv 192.0.2.10 --callback-host 192.0.2.20
 ```
 
 Apple TV can keep playing through 10 PM. If you finish watching and switch to Art during quiet hours, the TV goes into standby. At 7 AM, a sleeping TV stays asleep until you wake it. Use `quiet-hours status` to check the schedule, repeat `set` to change the hours, or use `quiet-hours remove` to turn it off.
+
+To open Art automatically whenever Samsung's Spotlight screensaver appears, add `--spotlight-art` to the `set` command. Outside quiet hours the artwork stays on screen. During quiet hours the worker waits for full-screen Art and then requests standby. Use `--no-spotlight-art` with the same hours to turn off the automatic switch. A new installation starts with automatic switching off. Later schedule edits retain your choice.
 
 With quiet hours installed, the custom Home screen shows **Sleep** and **Wake** below Art Mode. Press Down from Art Mode to select Sleep, then Down again for Wake. Left and Right change the selected time by one hour. The CLI and Home use the same schedule.
 

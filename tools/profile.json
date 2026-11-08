@@ -508,12 +508,13 @@
     }
   },
   "art_quiet_hours": {
-    "command": "quiet-hours set --start HH:MM --end HH:MM",
+    "command": "quiet-hours set --start HH:MM --end HH:MM [--spotlight-art | --no-spotlight-art]",
+    "spotlight_art": "Off on new installations unless explicitly enabled. When enabled, open full-screen Art from the active Samsung Spotlight screensaver throughout the day and night; apply the standby window after full-screen Art is confirmed.",
     "clock": "TV local time; start inclusive, end exclusive",
     "service": "samshush-art-quiet-hours.service",
     "journal": "/opt/usr/share/samshush-quiet-hours-v1",
     "home_controls": "Sleep and Wake under Art Mode edit the installed CLI schedule in one-hour steps.",
-    "verification": "Verified native HDMI input and Art-to-standby transitions, both Home selectors, CLI readback of edited hours and restoration through Home. Movie playback position and fresh-boot startup remain unverified."
+    "verification": "Verified Samsung Spotlight to full-screen Art outside quiet hours on this build. Prior device tests verified native HDMI input, Art-to-standby transitions, both Home selectors and CLI readback. Movie playback position and fresh-boot startup remain unverified."
   },
   "automatic_updates": {
     "key": "db/menu/support/softwareupdate/autoupdate",

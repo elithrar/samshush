@@ -26,6 +26,8 @@ class HostTests(unittest.TestCase):
             ["set", "--start", "22:00", "--end", "24:00"],
             ["set", "--start", "06:60", "--end", "07:00"],
             ["remove", "--end", "07:00"],
+            ["status", "--spotlight-art"],
+            ["inspect", "--no-spotlight-art"],
         ):
             with (
                 self.subTest(arguments=arguments),
