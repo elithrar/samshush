@@ -331,6 +331,13 @@ def main():
     )
     quiet.add_argument("operation", choices=("inspect", "set", "status", "remove"))
     quiet.add_argument(
+        "--spotlight-art",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="When the Spotlight screensaver appears, open full-screen Art at any hour "
+        "(set only; off on a new installation, otherwise retain the saved choice)",
+    )
+    quiet.add_argument(
         "--start",
         type=minute_of_day,
         metavar="HH:MM",
@@ -358,6 +365,10 @@ def main():
                 parser.error(
                     "quiet-hours set requires distinct --start and --end times"
                 )
+        elif args.spotlight_art is not None:
+            parser.error(
+                "--spotlight-art and --no-spotlight-art are only valid with quiet-hours set"
+            )
         elif args.start is not None or args.end is not None:
             parser.error("--start and --end are only valid with quiet-hours set")
     if args.action == "launchpad":
@@ -461,6 +472,7 @@ def main():
                 args.operation,
                 start=args.start,
                 end=args.end,
+                spotlight_art=args.spotlight_art,
                 assets={
                     name: (payloads / name).read_bytes()
                     for name in (

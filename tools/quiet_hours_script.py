@@ -34,7 +34,7 @@ def _minutes(start, end):
         raise ValueError("Quiet hours require two different local minutes in 0..1439")
 
 
-def render(operation, *, start=None, end=None, assets):
+def render(operation, *, start=None, end=None, spotlight_art=None, assets):
     if operation not in {"set", "inspect", "status", "remove"}:
         raise ValueError("Unknown quiet-hours operation")
     if operation == "inspect" and start is None and end is None:
@@ -43,6 +43,10 @@ def render(operation, *, start=None, end=None, assets):
         _minutes(start, end)
     elif start is not None or end is not None:
         raise ValueError("Only set and inspect accept quiet-hours minutes")
+    if spotlight_art is not None and (
+        type(spotlight_art) is not bool or operation != "set"
+    ):
+        raise ValueError("Only set accepts a Spotlight Art policy")
     payloads = {}
     for name in FILES:
         data = assets.get(name)
@@ -99,6 +103,7 @@ def render(operation, *, start=None, end=None, assets):
         ACTION=operation,
         START=start or 0,
         END=end or 0,
+        SPOTLIGHT={None: "keep", True: "on", False: "off"}[spotlight_art],
         ORIGINAL_HASH=ORIGINAL_HASH,
         LEGACY_HASH=_digest(legacy),
         WRAPPER_HASH=_digest(WRAPPER),
@@ -133,6 +138,12 @@ read_config() {
     begin=${BASH_REMATCH[1]}; end=${BASH_REMATCH[2]}
     [[ $begin -lt 1440 && $end -lt 1440 && $begin != "$end" ]]
 }
+read_spotlight() {
+    regular "$1" && [[ $(stat -c %a "$1") == 600 ]] || return 1
+    local bytes=''
+    if IFS= read -r -d '' -n 5 bytes < "$1"; then return 1; fi
+    case "$bytes" in $'on\n') spotlight=on;; $'off\n') spotlight=off;; *) return 1;; esac
+}
 prop() { systemctl show "$UNIT" --property="$1" --value; }
 # systemctl show may itself return 4 for a nonexistent transient unit.
 load_state() {
@@ -160,17 +171,19 @@ owner_pid() {
 
 RUNNER = r"""
 identity
-private_dir "$ROOT" && private_dir "$RUN" && read_config "$ROOT/config" || fail 'Invalid service configuration'
+private_dir "$ROOT" && private_dir "$RUN" && read_config "$ROOT/config" && read_spotlight "$ROOT/spotlight" || fail 'Invalid service configuration'
 [[ $# == 1 && $1 == samshush-art-quiet-hours ]] || fail 'Quiet-hours arguments changed'
 boot_id=$(cat /proc/sys/kernel/random/boot_id)
 runner_pid=$$
 # Keep only the current process's readiness and latest event. The managed runtime
 # also writes GC diagnostics to stdout; those do not attest to worker readiness.
+worker_args=(run)
+[[ $spotlight == off ]] || worker_args+=(--spotlight-art)
 set +e
-/usr/bin/dotnet "$ROOT/ArtQuietHours.dll" run 2>&1 | while IFS= read -r line; do
+/usr/bin/dotnet "$ROOT/ArtQuietHours.dll" "${worker_args[@]}" 2>&1 | while IFS= read -r line; do
     case "$line" in
         QUIET_HOURS_READY)
-            printf '%s %s\n' "$boot_id" "$runner_pid" > "$RUN/ready.tmp" && mv -f "$RUN/ready.tmp" "$RUN/ready" || exit 1;;
+            printf '%s %s %s\n' "$boot_id" "$runner_pid" "$spotlight" > "$RUN/ready.tmp" && mv -f "$RUN/ready.tmp" "$RUN/ready" || exit 1;;
         QUIET_HOURS_*) printf '%.512s\n' "$line" > "$RUN/latest.tmp" && mv -f "$RUN/latest.tmp" "$RUN/latest" || exit 1;;
     esac
 done
@@ -181,7 +194,7 @@ exit "$rc"
 
 BOOT = r"""
 identity
-private_dir "$ROOT" && read_config "$ROOT/config" || fail 'Invalid quiet-hours installation'
+private_dir "$ROOT" && read_config "$ROOT/config" && read_spotlight "$ROOT/spotlight" || fail 'Invalid quiet-hours installation'
 phase=$(cat "$ROOT/phase")
 [[ $phase == active || ${1:-} == control && ( $phase == prepared || $phase == updating ) ]] || fail 'Quiet-hours transaction is incomplete'
 for path in "$ROOT/runner" "$ROOT/ArtQuietHours.dll" "$ROOT/ArtQuietHours.runtimeconfig.json"; do
@@ -207,6 +220,7 @@ CONTROL = r"""
 ACTION=@@ACTION@@
 START=@@START@@
 END=@@END@@
+requested_spotlight=@@SPOTLIGHT@@
 HOOK=/opt/etc/parseinfo.sh
 PRIV=/opt/usr/share/samshush-boot-v1
 CTRL=/run/samshush-startup-control.lock
@@ -265,7 +279,9 @@ if [[ $ACTION == set || $ACTION == remove ]]; then
 fi
 phase_set() { printf '%s\n' "$1" > "$ROOT/phase.tmp" && mv -f "$ROOT/phase.tmp" "$ROOT/phase" && sync; }
 config_set() { printf '%s %s\n' "$1" "$2" > "$ROOT/config.tmp" && mv -f "$ROOT/config.tmp" "$ROOT/config" && sync; }
+spotlight_set() { printf '%s\n' "$1" > "$ROOT/spotlight.tmp" && mv -f "$ROOT/spotlight.tmp" "$ROOT/spotlight" && sync; }
 window_report() {
+    echo "QUIET_HOURS_SPOTLIGHT_ART=$spotlight"
     echo "QUIET_HOURS_WINDOW=$1 $2"
     printf 'Art Mode quiet hours: %02d:%02d–%02d:%02d (TV local time)\n' "$(($1 / 60))" "$(($1 % 60))" "$(($2 / 60))" "$(($2 % 60))"
 }
@@ -303,7 +319,7 @@ immutable() {
     for path in "$ROOT"/*; do
         name=${path##*/}
         case "$name" in
-            ArtQuietHours.dll|ArtQuietHours.runtimeconfig.json|runner|boot|handoff|stock.wrapper|privacy.launch|original|original.manifest|bridge.manifest|managed.manifest|preimages.sha256|config|config.tmp|mode|phase|phase.tmp|previous|previous.tmp) ;;
+            ArtQuietHours.dll|ArtQuietHours.runtimeconfig.json|runner|boot|handoff|stock.wrapper|privacy.launch|original|original.manifest|bridge.manifest|managed.manifest|preimages.sha256|config|config.tmp|spotlight|spotlight.tmp|mode|phase|phase.tmp|previous|previous.tmp) ;;
             *) fail 'Unexpected quiet-hours recovery entry';;
         esac
         regular "$path" || [[ $name == config.tmp && ! -e $path && ! -L $path ]] || fail 'Unsafe quiet-hours recovery entry'
@@ -313,7 +329,7 @@ immutable() {
 @@IMMUTABLE@@
 QH_FILES
     ) || fail 'Quiet-hours code drift'
-    regular "$ROOT/mode" && regular "$ROOT/phase" && read_config "$ROOT/config" || fail 'Invalid quiet-hours receipt'
+    regular "$ROOT/mode" && regular "$ROOT/phase" && read_config "$ROOT/config" && read_spotlight "$ROOT/spotlight" || fail 'Invalid quiet-hours receipt'
     mode=$(cat "$ROOT/mode")
     case "$mode" in
         stock) [[ ! -e $PRIV && ! -L $PRIV ]] && regular "$ROOT/original" && [[ $(hash "$ROOT/original") == @@ORIGINAL_HASH@@ ]] || fail 'Stock recovery preimage drift';;
@@ -388,10 +404,10 @@ stop_worker() {
 }
 ready() {
     local pid stamp
-    read_config "$ROOT/config" && [[ $(load_state) == loaded && $(prop ActiveState) == active ]] && unit_owned &&
+    read_config "$ROOT/config" && read_spotlight "$ROOT/spotlight" && [[ $(load_state) == loaded && $(prop ActiveState) == active ]] && unit_owned &&
         pid=$(owner_pid) && private_dir "$RUN" && regular "$RUN/ready" || return 1
     stamp="$(cat /proc/sys/kernel/random/boot_id) $pid"
-    [[ $(cat "$RUN/ready") == "$stamp" ]] || return 1
+    [[ $(cat "$RUN/ready") == "$stamp $spotlight" ]] || return 1
     ready_receipt="QUIET_HOURS_READY=$stamp $begin $end"
     echo "$ready_receipt"
 }
@@ -413,6 +429,7 @@ recover_failure() {
             stop_worker
             read_config "$ROOT/previous" || fail 'Prior quiet-hours config missing'
             config_set "$begin" "$end"
+            spotlight_set "$old_spotlight"
         fi
         if [[ $old_active == 1 ]]; then start_worker; fi
         phase_set active
@@ -470,6 +487,8 @@ if [[ $phase == absent ]]; then
     [[ $(load_state) == not-found ]] || fail 'A service with the quiet-hours name already exists'
     printf '%s\n' "$mode" > "$stage/mode"
     printf '%s %s\n' "$START" "$END" > "$stage/config"
+    [[ $requested_spotlight != keep ]] || requested_spotlight=off
+    printf '%s\n' "$requested_spotlight" > "$stage/spotlight"
     printf 'prepared\n' > "$stage/phase"
     if [[ $mode == stock ]]; then
         cp --preserve=all "$HOOK" "$stage/original"
@@ -495,8 +514,10 @@ if [[ $phase == absent ]]; then
 else
     [[ $phase == active ]] || fail 'Incomplete installation; remove it before setting a new policy'
     verify_point managed
+    old_spotlight=$spotlight
+    [[ $requested_spotlight != keep ]] || requested_spotlight=$old_spotlight
     if ready >/dev/null; then old_active=1; fi
-    if [[ $old_active == 1 && $begin == "$START" && $end == "$END" ]]; then
+    if [[ $old_active == 1 && $begin == "$START" && $end == "$END" && $old_spotlight == "$requested_spotlight" ]]; then
         window_report "$begin" "$end"; echo "$ready_receipt"; echo QUIET_HOURS_STATE=active; exit 0
     fi
     phase_set updating
@@ -507,6 +528,7 @@ else
     cp --preserve=all "$ROOT/config" "$ROOT/previous.tmp" && mv -f "$ROOT/previous.tmp" "$ROOT/previous" || fail 'Could not save prior quiet-hours config'
     rollback=update
     config_set "$START" "$END"
+    spotlight_set "$requested_spotlight"
 fi
 start_worker
 phase_set active

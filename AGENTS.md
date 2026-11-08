@@ -81,7 +81,7 @@ and device identifiers; do not publish them in a Gist or commit them.
 | `auto-update status/disable/restore` | Read or set the native Auto Update option; preserve its original value and leave manual updater services intact. |
 | `home inspect/install/status/remove` | Optional startup preferences (`install --startup-only`) or Apple TV shortcut row (`--apple-tv-only` on each command). Separate persistent journals; native Home is retained. |
 | `launchpad inspect/install/update/launch/activate/status/restore` | Separate full-screen app. Install requires a signed matching widget; activation assigns Home only after native action/fallback checks. Restore reinstates the original Home assignment and leaves the app installed. |
-| `quiet-hours inspect/set/status/remove` | Schedule standby for full-screen Art on the supported Frame Pro. Use `set --start HH:MM --end HH:MM` to install or change the daily window. |
+| `quiet-hours inspect/set/status/remove` | Schedule standby for full-screen Art on the supported Frame Pro. Use `set --start HH:MM --end HH:MM` to install or change the daily window. Add `--spotlight-art` to open Art whenever the Spotlight screensaver is active. |
 | `startup install/status/run/remove` | Save currently applied runtime scopes for automatic boot reapplication, inspect it, test the installed startup path, or restore the original startup script. |
 | `restore` | Remove recorded runtime masks/overlays and restart units that were previously active. Requires startup removal first when installed. |
 | `apps restore` | Remove recorded startup guards, restore app flags and restart previously running apps. |
@@ -268,6 +268,25 @@ is `/opt/usr/share/samshush-quiet-hours-v1`. Use `quiet-hours remove` before
 installing or removing the privacy startup hook. Both features use the verified
 AT-HUB startup path. Quiet hours saves the previous handoff for exact restoration.
 
+To replace the Spotlight screensaver with Art at any hour, enroll
+`quiet-hours set --start HH:MM --end HH:MM --spotlight-art`. The default on
+a new installation is off. Repeating `set` without the flag keeps the saved
+choice. To turn it off, use `--no-spotlight-art`. The same worker checks the
+saved window after full-screen Art appears. The Spotlight process and the
+underlying HDMI or Home selection can coexist. Require the focused screensaver
+identity before opening Art, then require the ordinary full-screen Art evidence
+before standby. On this build the installed worker switched the active Spotlight
+screensaver into full-screen Art outside quiet hours. Two native readbacks
+confirmed Art focus and the cleared screensaver flag. Host tests cover the
+combined Spotlight → Art → standby path inside the window. Home 0.3.2 edits
+the hours only.
+
+The root-owned `spotlight` file stores the enrollment independently of the
+two-minute-field `config` edited through Home. `quiet-hours status` reports
+`QUIET_HOURS_SPOTLIGHT_ART=on` or `off` after checking the boot ID, service
+PID and mode recorded at worker startup. A failed `set` rolls back the prior
+hours and Spotlight policy together.
+
 The custom Home screen reads and edits the installed schedule through two files
 in its Tizen `wgt-private` directory. Down from Art Mode selects Sleep, then
 Wake. Left and Right change the hour and preserve any minutes set by the CLI.
@@ -275,10 +294,12 @@ The optional controls appear after the worker responds. The worker validates
 the request, checks the prior times and worker session, and replies with the
 saved hours. It alone writes Home edits to the root-owned configuration.
 
-To upgrade an installation made with the original quiet-hours CLI (commit
-`4b027b0`), read its hours with that revision's `quiet-hours status`, then run
-its `quiet-hours remove`. Use the current CLI to `set` the same hours. The
-controller verifies the installed worker and boot files against its own hashes.
+For installations from commit `4b027b0` (original CLI) or `096d939`
+(Home-editable schedule), read the saved hours with the installing revision's
+`quiet-hours status`. Run `quiet-hours remove` with that same revision and
+its original payloads, then use the new CLI to `set` the saved hours. The
+controller checks worker and boot files against its own hashes. Add
+`--spotlight-art` during installation only when that behavior is requested.
 
 For a live timing test, observe Apple TV playback across the start of a window,
 then switch to full-screen Art and verify standby. Record the local time, actual
