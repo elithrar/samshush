@@ -185,6 +185,7 @@ set +e
         QUIET_HOURS_READY)
             printf '%s %s %s\n' "$boot_id" "$runner_pid" "$spotlight" > "$RUN/ready.tmp" && mv -f "$RUN/ready.tmp" "$RUN/ready" || exit 1;;
         QUIET_HOURS_*) printf '%.512s\n' "$line" > "$RUN/latest.tmp" && mv -f "$RUN/latest.tmp" "$RUN/latest" || exit 1;;
+        HOME_SOURCES_*) printf '%.512s\n' "$line" > "$RUN/sources.tmp" && mv -f "$RUN/sources.tmp" "$RUN/sources" || exit 1;;
     esac
 done
 rc=$?
@@ -209,7 +210,7 @@ if [[ $state == loaded ]]; then
 fi
 if [[ ! -e $RUN && ! -L $RUN ]]; then mkdir -m 700 "$RUN"; fi
 private_dir "$RUN" || fail 'Unsafe runtime directory'
-rm -f -- "$RUN/ready" "$RUN/ready.tmp" "$RUN/latest" "$RUN/latest.tmp" "$RUN/exit"
+rm -f -- "$RUN/ready" "$RUN/ready.tmp" "$RUN/latest" "$RUN/latest.tmp" "$RUN/exit" "$RUN/sources" "$RUN/sources.tmp"
 systemd-run --no-block --collect --unit="$UNIT" --description="$DESC" --property=Type=simple \
     --property=Restart=on-failure --property=RestartSec=60 --property=StartLimitIntervalSec=900 \
     --property=StartLimitBurst=3 --property=TimeoutStopSec=8 --property=KillMode=control-group \
@@ -453,6 +454,7 @@ if [[ $ACTION == status ]]; then
     window_report "$begin" "$end"
     if regular "$RUN/latest"; then cat "$RUN/latest"; fi
     echo QUIET_HOURS_STATE=active
+    if regular "$RUN/sources"; then cat "$RUN/sources"; fi
     exit 0
 fi
 if [[ $ACTION == remove ]]; then

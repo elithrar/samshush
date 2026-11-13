@@ -11,6 +11,7 @@
     <script src="device.js" defer></script>
     <script src="time-controls.js" defer></script>
     <script src="ui.js" defer></script>
+    <script src="sources.js" defer></script>
     <script src="weather.js" defer></script>
   </head>
   <body>
@@ -43,63 +44,92 @@
                   <stop offset="1" stop-color="#a7a8ab"></stop>
                 </linearGradient>
               </defs>
-              <ellipse class="device-shadow" cx="105" cy="119" rx="75" ry="12"></ellipse>
-              <path d="M33 58Q32 48 44 45L102 30Q111 28 120 32L153 47Q162 51 160 62L157 93Q156 99 147 102L94 118Q86 120 79 117L42 101Q36 98 36 91Z" fill="#15171b"></path>
-              <path d="M37 50Q35 47 46 44L103 30Q112 28 119 32L153 47Q163 52 153 56L96 74Q87 77 79 73L40 57Q33 54 37 50Z" fill="url(#box-top)"></path>
-              <path d="M88 78V113" stroke="#050609" stroke-width="2" opacity=".5"></path>
-              <circle cx="142" cy="89" r="1.6" fill="#d6d8d9"></circle>
-              <g transform="translate(150 83) rotate(25)">
-                <rect width="27" height="67" rx="7" fill="#85878d" transform="translate(2 2)"></rect>
-                <rect width="27" height="67" rx="7" fill="url(#remote-body)"></rect>
-                <circle cx="13.5" cy="15" r="9" fill="#34363b"></circle>
-                <circle cx="13.5" cy="15" r="5.7" fill="#4e5056"></circle>
-                <circle cx="8.5" cy="32" r="3" fill="#3b3d42"></circle>
-                <circle cx="19" cy="32" r="3" fill="#3b3d42"></circle>
-                <circle cx="8.5" cy="43" r="3" fill="#3b3d42"></circle>
-                <rect x="16" y="40" width="6" height="16" rx="3" fill="#3b3d42"></rect>
+              <ellipse class="device-shadow" cx="105" cy="121" rx="84" ry="9"></ellipse>
+              <path d="M24 65Q24 56 36 52L85 37Q93 35 101 38L150 55Q158 58 158 66V83Q158 91 148 94L101 109Q93 112 85 109L34 92Q24 89 24 81Z" fill="#151619"></path>
+              <path d="M25 61Q25 55 36 52L85 37Q93 35 101 38L150 55Q163 60 151 65L101 81Q93 84 85 81L34 64Q27 62 25 61Z" fill="url(#box-top)"></path>
+              <path d="M27 67L85 86Q93 89 101 86L155 69" fill="none" stroke="#202226" stroke-width="1"></path>
+              <circle cx="139" cy="88" r="1.2" fill="#e8e8e8"></circle>
+              <g transform="translate(172 22) rotate(16)">
+                <rect x="2" y="2" width="26" height="103" rx="7" fill="#85878d"></rect>
+                <rect width="26" height="103" rx="7" fill="url(#remote-body)"></rect>
+                <circle cx="20" cy="9" r="2" fill="#55575b"></circle>
+                <circle cx="13" cy="26" r="10" fill="#393b40"></circle>
+                <circle cx="13" cy="26" r="6.3" fill="#54565b"></circle>
+                <path d="M13 17V19M4 26H6M20 26H22M13 33V35" stroke="#999ba0" stroke-width=".7"></path>
+                <circle cx="7.5" cy="47" r="4.2" fill="#3b3d42"></circle>
+                <path d="M8.5 45L6.5 47L8.5 49" fill="none" stroke="#d3d4d7" stroke-width="1"></path>
+                <circle cx="19" cy="47" r="3.8" fill="#3b3d42"></circle>
+                <rect x="16.7" y="45.5" width="4.5" height="3" rx=".4" fill="none" stroke="#b9bbc0" stroke-width=".7"></rect>
+                <circle cx="7.5" cy="61" r="3.8" fill="#3b3d42"></circle>
+                <path d="M6 59.5L8 61L6 62.5M10 59.5V62.5" fill="none" stroke="#b9bbc0" stroke-width=".7"></path>
+                <circle cx="7.5" cy="75" r="3.8" fill="#3b3d42"></circle>
+                <rect x="15.3" y="57.2" width="7.5" height="23" rx="3.7" fill="#3b3d42"></rect>
+                <path d="M17 63H21M19 61V65M17 75H21" stroke="#b9bbc0" stroke-width=".8"></path>
               </g>
             </svg>
             <span class="tile-label">Apple TV</span>
           </button>
 
-          <button class="tile" data-id="hdmi-2" tabindex="-1" aria-label="HDMI 2">
-            <svg class="tile-art" viewBox="0 0 220 150" aria-hidden="true">
-              <ellipse class="device-shadow" cx="110" cy="126" rx="58" ry="7"></ellipse>
-              <rect class="monitor-shell" x="43" y="27" width="134" height="87" rx="8"></rect>
-              <rect class="monitor-screen" x="49" y="33" width="122" height="73" rx="3"></rect>
-              <path class="monitor-stand" d="M100 114H120L125 125H143V129H77V125H95Z"></path>
-              <path class="port-outline" d="M88 59H132V77L124 85H96L88 77Z"></path>
-              <path class="port-pins" d="M99 66V74M106 66V74M113 66V74M120 66V74"></path>
+          <button class="tile" data-id="hdmi-2" tabindex="-1" aria-label="Blu-ray, HDMI 2">
+            <svg class="tile-art disc-player" viewBox="0 0 220 150" aria-hidden="true">
+              <defs>
+                <linearGradient id="player-top" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stop-color="#393a3c"></stop>
+                  <stop offset="1" stop-color="#202123"></stop>
+                </linearGradient>
+                <linearGradient id="player-front" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0" stop-color="#090a0c"></stop>
+                  <stop offset=".53" stop-color="#202224"></stop>
+                  <stop offset="1" stop-color="#08090a"></stop>
+                </linearGradient>
+              </defs>
+              <ellipse class="device-shadow" cx="110" cy="104" rx="94" ry="5"></ellipse>
+              <path d="M16 76L31 62H188L204 76V97Q204 100 200 100H20Q16 100 16 97Z" fill="#17181a"></path>
+              <path d="M16 76L31 62H188L204 76Z" fill="url(#player-top)"></path>
+              <path d="M18 77H202V94H18Z" fill="url(#player-front)"></path>
+              <path d="M18 94H202V98H18Z" fill="#303133"></path>
+              <path d="M18 77H202" stroke="#545659" stroke-width=".8"></path>
+              <path d="M128 78H145L128 94H111Z" fill="#b2b5b7" opacity=".13"></path>
+              <text x="22" y="83" fill="#c3c5c8" font-family="Arial, sans-serif" font-size="4.2" font-weight="700">Panasonic</text>
+              <text x="102" y="89" fill="#a7b8b9" font-family="monospace" font-size="5.2" letter-spacing=".5">0:00.00</text>
+              <text x="186" y="93" fill="#8a8d91" font-family="Arial, sans-serif" font-size="2.5">DP-UB820</text>
+              <path d="M177 72H184M189 72H196" stroke="#626569" stroke-width=".8"></path>
+              <path d="M29 100H42V103H29ZM177 100H190V103H177Z" fill="#111214"></path>
             </svg>
-            <span class="tile-label">HDMI 2</span>
+            <span class="tile-label">Blu-ray</span>
           </button>
 
           <button class="tile audio-only" data-id="hdmi-3" disabled tabindex="-1" aria-label="HDMI 3, Arc Ultra, audio only, unavailable">
             <svg class="tile-art soundbar" viewBox="0 0 220 150" aria-hidden="true">
-              <ellipse class="device-shadow" cx="110" cy="101" rx="87" ry="8"></ellipse>
-              <rect x="18" y="61" width="184" height="35" rx="17.5" class="soundbar-body"></rect>
-              <path d="M34 67V90M40 65V92M46 65V92M52 65V92M58 65V92M64 65V92M70 65V92M76 65V92M82 65V92M88 65V92M94 65V92M100 65V92M106 65V92M112 65V92M118 65V92M124 65V92M130 65V92M136 65V92M142 65V92M148 65V92M154 65V92M160 65V92M166 65V92M172 65V92M178 65V92M184 65V92" class="soundbar-grille"></path>
-              <path d="M104 72H116" stroke="#9b9ea6" stroke-width="1.6" stroke-linecap="round"></path>
+              <defs>
+                <pattern id="arc-grille" width="2" height="2" patternUnits="userSpaceOnUse">
+                  <circle cx=".65" cy=".65" r=".3" fill="#9fa29f"></circle>
+                  <circle cx="1.65" cy="1.65" r=".3" fill="#9fa29f"></circle>
+                </pattern>
+              </defs>
+              <ellipse class="device-shadow" cx="110" cy="90" rx="96" ry="5"></ellipse>
+              <rect x="12" y="66" width="196" height="20" rx="10" class="soundbar-body"></rect>
+              <path d="M23 67H197Q203 67 205 72H15Q17 67 23 67Z" fill="#f4f4f2"></path>
+              <path d="M22 84H198" stroke="#b6b7b5" stroke-width="1.3" stroke-linecap="round"></path>
+              <rect x="17" y="71" width="186" height="12" rx="6" fill="url(#arc-grille)"></rect>
+              <rect x="98" y="73" width="24" height="7" rx="1" fill="#e6e6e3"></rect>
+              <text x="110" y="78.1" text-anchor="middle" fill="#696b6b" font-family="Arial, sans-serif" font-size="4.8" font-weight="700" letter-spacing=".65">SONOS</text>
+              <path d="M171 67H185" stroke="#d0d0cd" stroke-width="1.4" stroke-linecap="round"></path>
             </svg>
-            <span class="tile-label">HDMI 3</span>
+            <span class="tile-label">Arc Ultra</span>
             <span class="tile-detail">Audio only</span>
           </button>
 
           <button class="tile" data-id="hdmi-4" tabindex="-1" aria-label="HDMI 4">
             <svg class="tile-art" viewBox="0 0 220 150" aria-hidden="true">
-              <ellipse class="device-shadow" cx="110" cy="126" rx="58" ry="7"></ellipse>
-              <rect class="monitor-shell" x="43" y="27" width="134" height="87" rx="8"></rect>
-              <rect class="monitor-screen" x="49" y="33" width="122" height="73" rx="3"></rect>
-              <path class="monitor-stand" d="M100 114H120L125 125H143V129H77V125H95Z"></path>
-              <path class="port-outline" d="M88 59H132V77L124 85H96L88 77Z"></path>
-              <path class="port-pins" d="M99 66V74M106 66V74M113 66V74M120 66V74"></path>
+              <path class="port-outline" d="M56 55H164V79L151 94H69L56 79Z"></path>
+              <path class="port-pins" d="M73 65V77M82 65V77M91 65V77M100 65V77M110 65V77M120 65V77M129 65V77M138 65V77M147 65V77"></path>
             </svg>
             <span class="tile-label">HDMI 4</span>
           </button>
 
           <button class="tile" data-id="settings" tabindex="-1" aria-label="Settings">
             <svg class="tile-art settings-art" viewBox="0 0 220 150" aria-hidden="true">
-              <circle class="gear-disc" cx="110" cy="75" r="48"></circle>
               <g class="gear" transform="translate(110 75)">
                 <path d="M-9-39H9L12-29L19-25L30-28L39-12L31-5V5L39 12L30 28L19 25L12 29L9 39H-9L-12 29L-19 25L-30 28L-39 12L-31 5V-5L-39-12L-30-28L-19-25L-12-29Z"></path>
                 <circle r="19"></circle>

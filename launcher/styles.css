@@ -106,25 +106,17 @@ h1 {
 .tile.audio-only { color: #a6a8b3; background: linear-gradient(140deg, #252833, #20232e); }
 
 .tile-art { display: block; width: 100%; height: 9.4vw; margin: -.15vw 0 .55vw; flex-shrink: 0; }
-.tile-label { font-size: 1.27vw; font-weight: 700; line-height: 1.25; letter-spacing: -.025em; }
+.tile-label { flex-shrink: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1.27vw; font-weight: 700; line-height: 1.25; letter-spacing: -.025em; }
 .tile-detail { font-size: .78vw; line-height: 1.2; margin-top: .28vw; color: #a0a3b0; }
 
 .device-shadow { fill: #05070d; opacity: .23; }
-.monitor-shell { fill: #636876; }
-.monitor-screen { fill: #2a2f3c; }
-.monitor-stand { fill: #676c79; }
 .port-outline { fill: none; stroke: #a0a6b5; stroke-width: 4; stroke-linejoin: round; }
 .port-pins { stroke: #a0a6b5; stroke-width: 2; }
-.selected .monitor-shell, .selected .monitor-stand { fill: #464b56; }
-.selected .monitor-screen { fill: #262b35; }
-.selected .port-outline, .selected .port-pins { stroke: #b9bfcc; }
-.soundbar-body { fill: #535864; }
-.soundbar-grille { stroke: #292e39; stroke-width: 2; opacity: .9; }
-.soundbar { opacity: .7; }
-.gear-disc { fill: #20242e; stroke: #606675; stroke-width: 2; }
+.selected .port-outline, .selected .port-pins { stroke: #474e5b; }
+.soundbar-body { fill: #e6e6e3; }
+.soundbar { opacity: 1; }
 .gear path { fill: #8b91a0; stroke: #bac0cc; stroke-width: 1.5; stroke-linejoin: round; }
 .gear circle { fill: #252a35; stroke: #b7bdc9; stroke-width: 3; }
-.selected .gear-disc { fill: #b0b3ba; stroke: #858a95; }
 .selected .gear path { fill: #606672; stroke: #454b56; }
 .selected .gear circle { fill: #d3d5d9; stroke: #474e5b; }
 .picture-frame { fill: #8e8a7e; stroke: #b7b3a4; stroke-width: 1; }

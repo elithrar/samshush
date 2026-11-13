@@ -287,6 +287,24 @@ two-minute-field `config` edited through Home. `quiet-hours status` reports
 PID and mode recorded at worker startup. A failed `set` rolls back the prior
 hours and Spotlight policy together.
 
+Home 0.4.0 reads HDMI names through a separate `hdmi-sources.request` / `.reply`
+mailbox in the same widget-private directory. `tools/home_sources.py` supplies
+the read-only worker extension. A nonce matches each response to the current
+request; Home refreshes every 30 seconds while visible and uses fixed labels
+when the worker is absent or a response expires. Native custom/detected names
+take precedence; HDMI-CEC fills missing detected names. Multiple records on a
+port are ambiguous and are not used to identify a device. HDMI 2 defaults to
+Blu-ray; HDMI 3 remains audio-only. No source names or CEC settings are written.
+
+The existing worker supervises at most one source-readout child, checks the
+source library hash, and bounds the child's lifetime without blocking the Art
+policy loop. Mailbox replacement preserves the app's SMACK label and uses the
+existing descriptor-relative file checks. `quiet-hours status` includes the
+last source-readout result when available. To upgrade an older worker, retain
+its exact tools and payloads, read its hours and Spotlight choice, remove it
+with those old tools, then reinstall with the new tools and the same choices.
+Retain the old tools until the replacement and rollback path are verified.
+
 The custom Home screen reads and edits the installed schedule through two files
 in its Tizen `wgt-private` directory. Down from Art Mode selects Sleep, then
 Wake. Left and Right change the hour and preserve any minutes set by the CLI.

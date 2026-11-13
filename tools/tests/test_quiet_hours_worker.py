@@ -258,6 +258,25 @@ internal static class QuietHoursTests {
             "lost a committed update after late I/O failure");
     }
 
+    static void HomeSources() {
+        const string row = "{\"sourceType\":14,\"connectionState\":true,\"editName\":\"Movie%20player\",\"detectedName\":\"Blu-ray\"}";
+        var sources = W.ParseSources("[" + row + "]");
+        Check(sources.Length == 1 && sources[0].port == 2 && sources[0].connected &&
+            sources[0].name == "Movie player" && sources[0].detectedName == "Blu-ray", "source labels lost");
+        Check(W.ParseSources("[" + row + "," + row + "]").Length == 0, "ambiguous activities selected");
+        Check(W.ParseSources("[{\"sourceType\":56}]").Length == 0, "network device exposed as HDMI");
+        foreach (string json in new[]{"{}", "[{}]", "[" + row.Replace("14", "14,\"sourceType\":13") + "]",
+            "[" + row.Replace("Movie%20player", "%00bad") + "]"}) {
+            bool rejected = false;
+            try { W.ParseSources(json); } catch { rejected = true; }
+            Check(rejected, "malformed source inventory accepted");
+        }
+        Check(W.SourceToken(new string('a',32)) && !W.SourceToken(new string('a',33)) &&
+            !W.SourceToken("../" + new string('a',29)), "source token validation");
+        var values = W.CecValues("method return time=123 sender=:1.27\n   int32 0\n   string \"Apple TV\"\n");
+        Check(values.Length == 2 && values[0] == "int32 0" && values[1] == "string \"Apple TV\"", "CEC values");
+    }
+
     static void Main(string[] args) {
         switch (args[0]) {
             case "window": Window(); break;
@@ -270,6 +289,7 @@ internal static class QuietHoursTests {
             case "resume": Resume(); break;
             case "failure": Failure(); break;
             case "home-schedule": HomeSchedule(); break;
+            case "home-sources": HomeSources(); break;
             default: throw new ArgumentException("Unknown scenario");
         }
     }
@@ -341,6 +361,7 @@ class QuietHoursWorkerTests(unittest.TestCase):
             "resume",
             "failure",
             "home-schedule",
+            "home-sources",
         ):
             with self.subTest(scenario=scenario):
                 result = subprocess.run(

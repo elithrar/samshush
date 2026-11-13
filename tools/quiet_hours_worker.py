@@ -1,5 +1,7 @@
 """Device worker for suppressing fullscreen Frame artwork during local quiet hours."""
 
+from home_sources import SOURCE as HOME_SOURCES
+
 NAME = "ArtQuietHours"
 PROJECT = """<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup>
 <OutputType>Exe</OutputType><TargetFramework>net6.0</TargetFramework>
@@ -22,7 +24,7 @@ using System.Text.Json;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
 
-internal static class ArtQuietHours
+internal static partial class ArtQuietHours
 {
     const string Build = "T-RSMFAKUC-0090-REL-202607141953";
     const string Deviced = "/usr/lib/libdeviced.so.1.0.3";
@@ -539,6 +541,10 @@ internal static class ArtQuietHours
     {
         bool check = args.Length > 0 && args[0] == "check";
         try {
+            if (args.Length == 2 && args[0] == "sources" && SourceToken(args[1])) {
+                CheckEnvironment(false);
+                return ReplySources(args[1]);
+            }
             bool saver = args.SequenceEqual(new[]{"run", "--spotlight-art"});
             if (args.Length == 3 && args[0] == "handoff" &&
                 int.TryParse(args[1], NumberStyles.None, CultureInfo.InvariantCulture, out int pid) && pid > 1 &&
@@ -551,6 +557,7 @@ internal static class ArtQuietHours
                 throw new ArgumentException("Expected run, or check/run with start and end minutes");
             CheckEnvironment(saver, check);
             var home = installed ? new HomeBridge() : null;
+            using var sources = installed ? new SourcesBridge() : null;
             var hours = home?.Current ?? Hours.Parse(args[1], args[2]);
             if (check) {
                 long started = Environment.TickCount64;
@@ -577,9 +584,11 @@ internal static class ArtQuietHours
             long graceEnds = Environment.TickCount64 + GraceMs;
             while (Environment.TickCount64 < graceEnds) {
                 home?.Poll(); // Answer Home while retaining the initial standby grace period.
+                sources?.Poll();
                 if (stop.WaitOne((int)Math.Clamp(graceEnds - Environment.TickCount64, 0, PollMs))) return 0;
             }
             while (!stop.WaitOne(0)) {
+                sources?.Poll();
                 long nowMs = ClockMs(1); // CLOCK_MONOTONIC
                 long suspendMs = ClockMs(7) - nowMs; // CLOCK_BOOTTIME
                 string outcome = policy.Step(WindowOpen, () => Read(saver),
@@ -594,9 +603,11 @@ internal static class ArtQuietHours
             return 0;
         } catch (Exception e) {
             if (check) Console.WriteLine("QUIET_HOURS_CHECK=" + JsonSerializer.Serialize(new { schema = 1, complete = false, error = e.Message }));
-            else Console.Error.WriteLine("QUIET_HOURS_ERROR=" + e.Message);
+            else Console.Error.WriteLine((args.Length > 0 && args[0] == "sources" ? "HOME_SOURCES_ERROR=" : "QUIET_HOURS_ERROR=") + e.Message);
             return 1;
         }
     }
 }
 """
+
+SOURCE += HOME_SOURCES

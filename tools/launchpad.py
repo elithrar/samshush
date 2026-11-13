@@ -34,7 +34,8 @@ WEATHER_RESOURCES = (
     "icon.png",
     "water-lilies.jpg",
 )
-RESOURCES = WEATHER_RESOURCES + ("time-controls.js",)
+SCHEDULE_RESOURCES = WEATHER_RESOURCES + ("time-controls.js",)
+RESOURCES = SCHEDULE_RESOURCES + ("sources.js",)
 WEATHER_CONFIG = "weather-config.json"
 WEATHER_ORIGIN = "https://api.open-meteo.com"
 LEGACY_RESOURCES = tuple(name for name in WEATHER_RESOURCES if name != "weather.js")
@@ -233,7 +234,11 @@ def signed_widget_resources(path, source=SOURCE, *, previous=False):
             names = [item.filename for item in members]
             resources = RESOURCES + (WEATHER_CONFIG,)
             if previous:
-                for old in (LEGACY_RESOURCES, WEATHER_RESOURCES + (WEATHER_CONFIG,)):
+                for old in (
+                    LEGACY_RESOURCES,
+                    WEATHER_RESOURCES + (WEATHER_CONFIG,),
+                    SCHEDULE_RESOURCES + (WEATHER_CONFIG,),
+                ):
                     if set(names) == set(old + SIGNATURES):
                         resources = old
                         break

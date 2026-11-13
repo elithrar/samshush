@@ -102,6 +102,7 @@ class LaunchpadTests(unittest.TestCase):
             "ui.js": b"window.testUI = true;",
             "device.js": b"window.testDevice = true;",
             "time-controls.js": b"window.testSchedule = true;",
+            "sources.js": b"window.testSources = true;",
             "weather.js": b"window.testWeather = true;",
             "icon.png": b"\x89PNG\r\n\x1a\nfixture",
             "water-lilies.jpg": b"\xff\xd8\xff\xd9fixture",
@@ -232,7 +233,12 @@ class LaunchpadTests(unittest.TestCase):
         identity, files = launchpad.signed_widget_resources(self.widget, previous=True)
         self.assertEqual(identity.app, "Gxqk7W2na5.Shortcuts")
         self.assertEqual(files, previous)
-        weather = {k: v for k, v in self.resources.items() if k != "time-controls.js"}
+        schedule = {k: v for k, v in self.resources.items() if k != "sources.js"}
+        write_widget(self.widget, signed_members(schedule))
+        self.assertEqual(
+            launchpad.signed_widget_resources(self.widget, previous=True)[1], schedule
+        )
+        weather = {k: v for k, v in schedule.items() if k != "time-controls.js"}
         weather["config.xml"] = WEATHER_MANIFEST
         write_widget(self.widget, signed_members(weather))
         self.assertEqual(

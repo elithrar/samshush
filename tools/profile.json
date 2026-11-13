@@ -514,6 +514,7 @@
     "service": "samshush-art-quiet-hours.service",
     "journal": "/opt/usr/share/samshush-quiet-hours-v1",
     "home_controls": "Sleep and Wake under Art Mode edit the installed CLI schedule in one-hour steps.",
+    "home_sources": "Read-only HDMI source and CEC names for Home 0.4.0; nonce-matched mailbox, bounded child process and Blu-ray fallback on HDMI 2.",
     "verification": "Verified Samsung Spotlight to full-screen Art outside quiet hours on this build. Prior device tests verified native HDMI input, Art-to-standby transitions, both Home selectors and CLI readback. Movie playback position and fresh-boot startup remain unverified."
   },
   "automatic_updates": {

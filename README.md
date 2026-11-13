@@ -123,6 +123,11 @@ Optionally replace the default SmartHub noise with a custom home screen
 - Use `frame.py launchpad install --widget .local/launchpad-build/Shortcuts.wgt`, then `launchpad launch`. Check Apple TV, Settings, Art Mode and Back before assigning Home.
 - Run `launchpad activate --widget .local/launchpad-build/Shortcuts.wgt` to assign the Home button. `launchpad restore` returns it to Samsung Home. See [AGENTS.md](AGENTS.md#home-screen-optional) for complete commands, updates and recovery.
 
+Home uses Samsung's source labels and HDMI-CEC names when the updated quiet-hours
+worker is installed. It refreshes while Home is visible and selects artwork for
+Apple TV, Blu-ray/DVD players and soundbars. HDMI 2 falls back to “Blu-ray” when
+the player supplies no name. Names do not change which port a tile opens.
+
 ## Art quiet hours (optional)
 
 On the supported Frame Pro, set a daily window in the TV’s local time. This example puts the Frame in standby when it displays artwork between 10 PM and 7 AM.
