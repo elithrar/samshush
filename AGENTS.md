@@ -40,7 +40,8 @@ separate commands and journals. Apply them only within the owner's requested sco
    profile and payloads have evidence only for QN65LS03FWFXZA, Tizen 9, build
    `T-RSMFAKUC-0090-REL-202607141953`. Do not bypass build checks or merely replace a
    build string to support another TV. The app path also requires owner UID 5001.
-   All device commands acquire temporary root, including inspect/status/audit.
+   Device commands acquire temporary root, including inspect/status/audit, except
+   `packages check-registrations`, which reads the stock Developer Mode app list.
 6. Keep official downloads immutable. Record source URL, retrieval date, size and
    SHA-256. Downloaded firmware may differ from the installed build. Extracted or
    decrypted images are not signed, flashable updates. Preserve paired families.
@@ -57,9 +58,11 @@ uv run --project tools tools/frame.py --tv 192.0.2.10 --callback-host 192.0.2.20
 uv run --project tools tools/frame.py --tv 192.0.2.10 --callback-host 192.0.2.20 voice-audit
 ```
 
-`frame.py --help` is the command reference. `--logs` defaults to `.local/reports`;
-reports include completion, command results and cleanup evidence. Protect raw logs
-and device identifiers; do not publish them in a Gist or commit them.
+`frame.py --help` is the command reference. Commands that use temporary root create a private JSON
+report in `--logs` (default `.local/reports`) before contacting the TV. Later saves
+replace the report atomically. If the host stops mid-command, a report with
+`completed: false` means the device outcome needs verification. Protect raw logs
+and device identifiers.
 
 | Command | Effect and limits |
 | --- | --- |
@@ -75,6 +78,7 @@ and device identifiers; do not publish them in a Gist or commit them.
 | `voice-audit` | Inspect processes and capture metadata; does not record audio. |
 | `service-audit` | Read all system service/unit-file listings, profile and investigation dependencies, app registrations, native/managed process identities and selected presence settings. No app launch, media/packet capture or settings write. |
 | `debloat-audit` | Read optional-app registrations, dependencies, process identities and game-model/config metadata without capturing screen frames. |
+| `packages check-registrations` | Read owner AppIDs with the ordinary Samsung SDK. Exit 1 means a selected AppID appeared, 0 means none appeared in the list, and 2 means the check failed. |
 | `apps apply/status/verify/restore --group GROUP` | Control a profile app group with its own journal; CLI help lists available groups. |
 | `services GROUP apply/status/restore` | Control a profile runtime group with its own journal; CLI help lists available groups. |
 | `certificates apply/status/restore` | Overlay 11 verified certificate files in a separate journal, removing four emSign roots without disturbing voice state. Current boot only. |
@@ -131,8 +135,9 @@ uv run --project tools tools/frame.py --tv 192.0.2.10 --callback-host 192.0.2.20
 
 Use `--cli /absolute/path/to/tizen-wrapper` instead of `--sdk` when needed.
 For optional weather, append `--weather-postcode "$TV_WEATHER_POSTCODE"` to the
-build command. Omit it to disable weather. The signer uses the saved profile;
-keep credentials out of command arguments.
+build command. On an update, `--weather-from-widget PATH` copies the previous
+signed widget's weather configuration without a postcode lookup. Omitting both
+options disables weather. The signer uses the saved profile.
 
 Build updates into a fresh directory and retain the previous signed widget:
 
@@ -156,8 +161,7 @@ The `/opt/usr/apps/PACKAGE/res/wgt` layout and original resource hashes were
 confirmed live; a mismatch fails closed. Host XML checks validate resources/digests,
 not certificate trust. The SDK handles certificate-chain and author validation.
 
-Weather is an explicit build option, `--weather-postcode`, with its location
-resolved into generated `weather-config.json` inside private signed output. Never
+Weather uses a generated `weather-config.json` inside private signed output. Never
 put the owner’s postcode or coordinates in tracked source, examples or fixtures.
 The widget permits only HTTPS Open-Meteo access and refreshes current conditions
 and today’s forecast every ten minutes while visible. The UI hides expired data.
@@ -443,9 +447,12 @@ Use `packages prepare --backup-dir .local/backups/NAME`, then
 still precede the command. Preparation journals original app flags, stops the
 selected packages and transfers a bounded archive through the existing callback
 transport; direct SDB file pull is unavailable on this TV. The archive is readable
-only by the verified SDK UID 901 while in transit. Verify its SHA-256 on the host
-before removing the temporary TV copy. `packages backup --backup-dir PATH` retries
-a failed transfer from its prepared receipt. Do not rerun preparation over a journal.
+only by the verified SDK UID 901 while in transit. The host verifies its SHA-256
+and syncs the archive, manifest and backup directory before acknowledging the
+TV copy. `packages backup --backup-dir PATH` retries a failed transfer from its
+prepared receipt and preserves an existing matching archive and manifest. Use a
+private local filesystem supporting hard links and directory sync. Do not rerun
+preparation over a journal.
 
 For a confirmed return after a completed removal, use `packages prepare-returned
 --backup-dir NEW_PATH`. It discovers only currently registered packages from the
@@ -483,6 +490,11 @@ On the November 7 quiet-hours preflight, the privacy worker had finished all
 enrolled runtime groups on a new boot. Its package check reported
 `com.samsung.tv.screen-analysis-dbmgr-nb` registered again. The worker recorded
 failure for that boot. Check the package receipt before any further removal.
+
+The November 18 Developer Mode app list also contained this AppID.
+`packages check-registrations` detects such entries without starting apps or
+changing TV state. The SDK list covers owner-visible AppIDs. Use the separate
+package receipt for installed files and processes.
 
 The screen-analysis manager requests the non-branded model through WAS when its
 network subscriber connects, independent of the app auto-update preference. It

@@ -19,6 +19,8 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from private_records import write_json
+
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "launcher"
 WIDGET_NS = "{http://www.w3.org/ns/widgets}"
@@ -321,7 +323,16 @@ def verify_widget(path, source=SOURCE):
     return signed_widget_resources(path, source)[0]
 
 
-def build(sdk, profile, output, source=SOURCE, *, cli=None, weather_postcode=None):
+def build(
+    sdk,
+    profile,
+    output,
+    source=SOURCE,
+    *,
+    cli=None,
+    weather_postcode=None,
+    weather_from_widget=None,
+):
     """Use the official packager without logging profile credentials."""
     if cli is None:
         if sdk is None:
@@ -334,15 +345,23 @@ def build(sdk, profile, output, source=SOURCE, *, cli=None, weather_postcode=Non
     if not profile or len(profile) > 128 or any(ord(char) < 32 for char in profile):
         raise ValueError("Invalid signing profile name")
     files = source_files(source)
-    coordinates = (
-        resolve_weather_postcode(weather_postcode)
-        if weather_postcode is not None
-        else {}
-    )
-    generated = (
-        json.dumps(coordinates, allow_nan=False, separators=(",", ":")).encode() + b"\n"
-    )
-    weather_config(generated)
+    generated = b"{}\n"
+    if weather_from_widget is not None:
+        if weather_postcode is not None:
+            raise ValueError("Choose one weather source: postcode or previous widget")
+        previous_identity, previous = signed_widget_resources(
+            weather_from_widget, previous=True
+        )
+        if previous_identity != manifest_identity(files["config.xml"]):
+            raise ValueError("Previous weather widget has a different app identity")
+        generated = previous.get(WEATHER_CONFIG, generated)
+    elif weather_postcode is not None:
+        coordinates = resolve_weather_postcode(weather_postcode)
+        generated = (
+            json.dumps(coordinates, allow_nan=False, separators=(",", ":")).encode()
+            + b"\n"
+        )
+    coordinates = weather_config(generated)
     files[WEATHER_CONFIG] = generated
     output.mkdir(parents=True, exist_ok=False, mode=0o700)
     with tempfile.TemporaryDirectory(prefix="stage-", dir=output) as directory:
@@ -480,6 +499,7 @@ def run(args, frame):
     )
     evidence = {
         "operation": args.operation,
+        "tv": str(args.tv),
         "app_id": identity.app,
         "completed": False,
         "results": [],
@@ -518,14 +538,6 @@ def run(args, frame):
         evidence["previous_widget"] = str(frozen_previous)
         evidence["previous_widget_sha256"] = previous_digest
 
-    def save():
-        temporary = report.with_suffix(".tmp")
-        with temporary.open("w") as output:
-            os.chmod(temporary, 0o600)
-            json.dump(evidence, output, indent=2)
-            output.write("\n")
-        temporary.replace(report)
-
     def execute(script):
         result = asyncio.run(
             probe(
@@ -539,7 +551,7 @@ def run(args, frame):
             )
         )
         evidence["results"].append(result)
-        save()
+        write_json(report, evidence, replace=True)
         frame.check_result(result)
         commands = result.get("commands", [])
         if len(commands) != 1:
@@ -605,12 +617,12 @@ def run(args, frame):
                 "stderr": result.stderr,
             }
         )
-        save()
+        write_json(report, evidence, replace=True)
         if result.returncode:
             raise ValueError("SDK operation failed; inspect its report before retrying")
         return result.stdout + result.stderr
 
-    save()
+    write_json(report, evidence)
     try:
         home_layout.verify_model(args.tv)
         before = routing(
@@ -641,7 +653,7 @@ def run(args, frame):
                 / f"Samshush-{digest[:16]}-{secrets.token_hex(4)}.wgt"
             )
             evidence.update(widget_sha256=digest, staged_widget=str(remote))
-            save()
+            write_json(report, evidence, replace=True)
             client.push(frozen_widget, remote)
             checked_upload(
                 f"""set -euo pipefail
@@ -715,7 +727,7 @@ echo LAUNCHPAD_UPLOAD_CLEANED
         evidence["error"] = str(error)
         print(f"FAILED: {error}. Inspect the saved report before retrying.")
     finally:
-        save()
+        write_json(report, evidence, replace=True)
         print(f"Report: {report}")
     return 0 if evidence["completed"] else 1
 
@@ -730,8 +742,12 @@ def main():
         "--cli", type=Path, help="Executable Tizen CLI or local wrapper"
     )
     parser.add_argument("--profile", required=True)
-    parser.add_argument(
-        "--weather-postcode", help="US ZIP code for weather; omitted disables weather"
+    weather = parser.add_mutually_exclusive_group()
+    weather.add_argument("--weather-postcode", help="US ZIP code for weather")
+    weather.add_argument(
+        "--weather-from-widget",
+        type=Path,
+        help="Carry forward the weather configuration from a previous signed widget",
     )
     parser.add_argument(
         "--output", required=True, type=Path, help="Fresh private output directory"
@@ -744,6 +760,11 @@ def main():
             args.output.resolve(),
             cli=args.cli.expanduser().resolve() if args.cli else None,
             weather_postcode=args.weather_postcode,
+            weather_from_widget=(
+                args.weather_from_widget.expanduser()
+                if args.weather_from_widget
+                else None
+            ),
         )
     except (OSError, ValueError) as error:
         parser.exit(1, f"{error}\n")

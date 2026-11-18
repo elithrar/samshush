@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import io
 import json
 import os
 import re
@@ -164,6 +165,154 @@ def returned_fake(command, args):
     return 0
 
 
+class RegistrationTests(unittest.TestCase):
+    separator = "=" * 49
+
+    def app_list(self, *rows):
+        return "\n".join(
+            [
+                "Application List for user 5001",
+                "User's Application",
+                "Name \t AppID",
+                self.separator,
+                *rows,
+                self.separator,
+                "",
+            ]
+        )
+
+    def test_cli_uses_only_stock_sdk_applist_and_reports_exact_app_ids(self):
+        selected = remove_packages.PACKAGES[3]
+        rows = self.app_list(
+            f"\t'Owner's App'\t '{selected}'",
+            f"\t'{remove_packages.PACKAGES[0]}'\t 'unrelated.id'",
+            f"\t'Private title'\t '{remove_packages.PACKAGES[1]}.extra'",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            sdk = Path(temporary) / "sdb"
+            sdk.write_text(
+                '#!/bin/sh\ntest "$#" -eq 5 && test "$1" = "-s" && test "$2" = "192.0.2.1:26101" '
+                '&& test "$3" = "shell" && test "$4" = "0" && test "$5" = "applist" || exit 9\n'
+                + "cat <<'END'\n"
+                + rows
+                + "END\n"
+            )
+            sdk.chmod(0o700)
+            with (
+                patch.dict(os.environ),
+                patch.object(
+                    frame.sys,
+                    "argv",
+                    [
+                        "frame.py",
+                        "--tv",
+                        "192.0.2.1",
+                        "--sdb",
+                        str(sdk),
+                        "packages",
+                        "check-registrations",
+                    ],
+                ),
+                patch.object(
+                    frame, "verify_files", side_effect=AssertionError("payload access")
+                ),
+                patch(
+                    "samsung_tv_root.archive_root.probe",
+                    side_effect=AssertionError("privileged access"),
+                ),
+                patch("sys.stdout", new_callable=io.StringIO) as output,
+            ):
+                self.assertEqual(frame.main(), 1)
+                self.assertEqual(output.getvalue().splitlines()[1:], [selected])
+
+    def test_none_listed_only_for_a_complete_owner_list(self):
+        from types import SimpleNamespace
+
+        complete = self.app_list(f"'{remove_packages.PACKAGES[0]}'\t 'another.app'")
+        for output, returncode, stderr, expected in (
+            (complete, 0, "", 0),
+            ("", 0, "", 2),
+            ("error: device not found", 0, "", 2),
+            (complete, 1, "", 2),
+            (complete, 0, "device disconnected", 2),
+            (complete.replace("5001", "5002"), 0, "", 2),
+            (complete.rsplit(self.separator, 1)[0], 0, "", 2),
+            (self.app_list("'private'\t 'related.id'", "truncated row"), 0, "", 2),
+        ):
+            fake = SimpleNamespace(stdout=output, returncode=returncode, stderr=stderr)
+            with (
+                self.subTest(output=output, returncode=returncode, stderr=stderr),
+                patch("samsung_tv_root.sdb.find_sdb", return_value="/unused"),
+                patch.object(remove_packages.subprocess, "run", return_value=fake),
+                patch("sys.stdout", new_callable=io.StringIO) as stdout,
+                patch("sys.stderr", new_callable=io.StringIO) as errors,
+            ):
+                self.assertEqual(
+                    remove_packages.check_registrations("192.0.2.1"), expected
+                )
+                if expected == 0:
+                    self.assertIn("No assessed AppIDs listed", stdout.getvalue())
+                    self.assertIn("SDK app registrations only", stdout.getvalue())
+                else:
+                    self.assertEqual(stdout.getvalue(), "")
+                    self.assertIn("failed", errors.getvalue())
+
+    def test_missing_target_connects_once_and_repeats_only_the_selected_query(self):
+        from types import SimpleNamespace
+
+        serial = "192.0.2.1:26101"
+        selected = remove_packages.PACKAGES[3]
+        query = ["/sdk/sdb", "-s", serial, "shell", "0", "applist"]
+        responses = [
+            SimpleNamespace(
+                stdout="", stderr=f"error: serial number '{serial}' wrong", returncode=1
+            ),
+            SimpleNamespace(stdout=f"connected to {serial}", stderr="", returncode=0),
+            SimpleNamespace(
+                stdout=self.app_list(f"'screen analysis'\t '{selected}'"),
+                stderr="",
+                returncode=0,
+            ),
+        ]
+        with (
+            patch("samsung_tv_root.sdb.find_sdb", return_value="/sdk/sdb"),
+            patch.object(
+                remove_packages.subprocess, "run", side_effect=responses
+            ) as sdk,
+            patch("sys.stdout", new_callable=io.StringIO) as output,
+        ):
+            self.assertEqual(remove_packages.check_registrations("192.0.2.1"), 1)
+            self.assertIn(selected, output.getvalue())
+        self.assertEqual(
+            [call.args[0] for call in sdk.call_args_list],
+            [query, ["/sdk/sdb", "connect", serial], query],
+        )
+
+    def test_unreachable_target_reports_bounded_connect_diagnostic(self):
+        from types import SimpleNamespace
+
+        responses = [
+            SimpleNamespace(stdout="error: target not found", stderr="", returncode=0),
+            SimpleNamespace(
+                stdout="",
+                stderr="Connection timed out " + "x" * 300 + "\nprivate inventory",
+                returncode=1,
+            ),
+        ]
+        with (
+            patch("samsung_tv_root.sdb.find_sdb", return_value="/sdk/sdb"),
+            patch.object(
+                remove_packages.subprocess, "run", side_effect=responses
+            ) as sdk,
+            patch("sys.stderr", new_callable=io.StringIO) as errors,
+        ):
+            self.assertEqual(remove_packages.check_registrations("192.0.2.1"), 2)
+            self.assertEqual(sdk.call_count, 2)
+            self.assertIn("Connection timed out", errors.getvalue())
+            self.assertNotIn("private inventory", errors.getvalue())
+            self.assertLess(len(errors.getvalue()), 260)
+
+
 class RemovalTests(unittest.TestCase):
     def test_render_rejects_untrusted_backup_path_and_hash(self):
         for archive in (
@@ -216,6 +365,40 @@ class RemovalTests(unittest.TestCase):
                     remove_packages.run(args, frame)
                 probe.assert_not_called()
 
+    def test_original_prepare_checks_backup_volume_hard_links_before_device_access(
+        self,
+    ):
+        from argparse import Namespace
+
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            args = Namespace(operation="prepare", backup_dir=parent / "new" / "backup")
+            with (
+                patch.object(
+                    os, "link", side_effect=OSError("hard links unavailable")
+                ) as link,
+                patch("samsung_tv_root.archive_root.probe") as probe,
+                self.assertRaisesRegex(OSError, "hard links unavailable"),
+            ):
+                remove_packages.run(args, frame)
+            self.assertEqual(Path(link.call_args.args[0]).parent, parent)
+            self.assertEqual(list(parent.iterdir()), [])
+            probe.assert_not_called()
+
+    @unittest.skipIf(os.geteuid() == 0, "root can search a mode-600 directory")
+    def test_inaccessible_returned_backup_cannot_select_the_original_journal(self):
+        with tempfile.TemporaryDirectory() as temp:
+            backup = Path(temp)
+            (backup / "attempt.json").write_text("{}")
+            backup.chmod(0o600)
+            try:
+                with self.assertRaises(PermissionError):
+                    remove_packages.local_backup_context(
+                        backup, "192.0.2.1", "build", require_manifest=False
+                    )
+            finally:
+                backup.chmod(0o700)
+
     def test_backup_transfer_verifies_bytes_and_discards_truncated_copy(self):
         from types import SimpleNamespace
 
@@ -265,6 +448,96 @@ class RemovalTests(unittest.TestCase):
                 remove_packages.download_archive(
                     client, "/known/archive", destination, "0" * 64
                 )
+
+    def test_transfer_preserves_an_archive_created_during_download(self):
+        from types import SimpleNamespace
+
+        payload = b"verified bytes"
+        expected = hashlib.sha256(payload).hexdigest()
+
+        def replies(destination, concurrent):
+            yield SimpleNamespace(output=f"{len(payload)}\n[exit:0]")
+            destination.write_bytes(concurrent)
+            yield SimpleNamespace(
+                output=base64.b64encode(payload).decode() + "\n[exit:0]"
+            )
+
+        for concurrent in (payload, b"other recovery archive"):
+            with (
+                self.subTest(concurrent=concurrent),
+                tempfile.TemporaryDirectory() as temp,
+            ):
+                destination = Path(temp) / "packages.tar.gz"
+                client = Mock()
+                client.capture.side_effect = replies(destination, concurrent)
+                if concurrent == payload:
+                    remove_packages.download_archive(
+                        client, "/known/archive", destination, expected
+                    )
+                else:
+                    with self.assertRaisesRegex(ValueError, "refusing to overwrite"):
+                        remove_packages.download_archive(
+                            client, "/known/archive", destination, expected
+                        )
+                self.assertEqual(destination.read_bytes(), concurrent)
+                self.assertEqual(list(Path(temp).iterdir()), [destination])
+
+    def test_manifest_write_failure_is_retryable_and_existing_receipts_are_immutable(
+        self,
+    ):
+        def write_partial(record, output, **kwargs):
+            output.write("{")
+            raise OSError("disk full")
+
+        with tempfile.TemporaryDirectory() as temp:
+            manifest = Path(temp) / "manifest.json"
+            record = {"sha256": "a" * 64, "created_utc": "first transfer"}
+            with (
+                patch.object(remove_packages.json, "dump", side_effect=write_partial),
+                self.assertRaisesRegex(OSError, "disk full"),
+            ):
+                remove_packages.save_manifest(manifest, record)
+            self.assertEqual(list(Path(temp).iterdir()), [])
+            remove_packages.save_manifest(manifest, record)
+            original = manifest.read_bytes()
+            remove_packages.save_manifest(manifest, record | {"created_utc": "retry"})
+            self.assertEqual(manifest.read_bytes(), original)
+            with self.assertRaisesRegex(ValueError, "manifest differs"):
+                remove_packages.save_manifest(manifest, record | {"sha256": "b" * 64})
+            self.assertEqual(manifest.read_bytes(), original)
+
+    def test_linked_receipt_or_archive_stops_removal_before_device_access(self):
+        from argparse import Namespace
+
+        with tempfile.TemporaryDirectory() as temp:
+            backup = Path(temp)
+            archive = backup / "packages.tar.gz"
+            archive.write_bytes(b"verified bytes")
+            receipt = backup / "manifest.json"
+            receipt.write_text(
+                json.dumps(
+                    {
+                        "packages": list(remove_packages.PACKAGES),
+                        "tv": "192.0.2.1",
+                        "build": frame.policy()["build"],
+                        "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+                    }
+                )
+            )
+            args = Namespace(operation="remove", backup_dir=backup, tv="192.0.2.1")
+            for path in (archive, receipt):
+                with (
+                    self.subTest(file=path.name),
+                    patch("samsung_tv_root.archive_root.probe") as probe,
+                ):
+                    original = path.with_suffix(".original")
+                    path.rename(original)
+                    path.symlink_to(original)
+                    with self.assertRaises(OSError):
+                        remove_packages.run(args, frame)
+                    probe.assert_not_called()
+                    path.unlink()
+                    original.rename(path)
 
     def run_remove(
         self,
@@ -422,7 +695,28 @@ class ReturnedHostTests(unittest.TestCase):
                 download.side_effect = lambda client, archive, destination, expected: (
                     destination.write_bytes(data)
                 )
+                sync = remove_packages.private_records.sync_directory
+
+                def fail_manifest_sync(directory):
+                    if directory == backup and (backup / "manifest.json").exists():
+                        raise OSError("directory sync failed")
+                    sync(directory)
+
+                with patch.object(
+                    remove_packages.private_records,
+                    "sync_directory",
+                    fail_manifest_sync,
+                ):
+                    before = len(commands)
+                    self.assertEqual(remove_packages.run(args, frame), 1)
+                    self.assertEqual(len(commands), before + 1)  # no acknowledgment
+                saved_manifest = (backup / "manifest.json").read_bytes()
+                before = len(commands)
                 self.assertEqual(remove_packages.run(args, frame), 0)
+                self.assertEqual(len(commands), before + 2)
+                self.assertEqual(
+                    (backup / "manifest.json").read_bytes(), saved_manifest
+                )
                 manifest = json.loads((backup / "manifest.json").read_text())
                 self.assertEqual(manifest["attempt_id"], pending["attempt_id"])
                 self.assertEqual(manifest["parent_backup_sha256"], "a" * 64)
@@ -469,6 +763,45 @@ class ReturnedHostTests(unittest.TestCase):
                     manifest = original | {key: value}
                     (backup / "manifest.json").write_text(json.dumps(manifest))
                     with self.assertRaises(ValueError):
+                        remove_packages.run(args, frame)
+                    probe.assert_not_called()
+
+    def test_mixed_attempt_and_manifest_stop_backup_and_removal_before_device_access(
+        self,
+    ):
+        from argparse import Namespace
+
+        with tempfile.TemporaryDirectory() as temporary:
+            backup = Path(temporary)
+            data = b"verified archive"
+            (backup / "packages.tar.gz").write_bytes(data)
+            attempt = {
+                "schema": "samshush-returned-packages-v1",
+                "attempt_id": "1" * 16,
+                "packages": list(remove_packages.PACKAGES[3:5]),
+                "parent_backup_sha256": "a" * 64,
+                "tv": "192.0.2.1",
+                "build": frame.policy()["build"],
+            }
+            (backup / "attempt.json").write_text(json.dumps(attempt))
+            for changed in (
+                {"attempt_id": "2" * 16},
+                {"packages": list(remove_packages.PACKAGES[:1])},
+                {"parent_backup_sha256": "b" * 64},
+            ):
+                manifest = (
+                    attempt | {"sha256": hashlib.sha256(data).hexdigest()} | changed
+                )
+                (backup / "manifest.json").write_text(json.dumps(manifest))
+                for operation in ("backup", "remove"):
+                    args = Namespace(
+                        operation=operation, backup_dir=backup, tv="192.0.2.1"
+                    )
+                    with (
+                        self.subTest(changed=changed, operation=operation),
+                        patch("samsung_tv_root.archive_root.probe") as probe,
+                        self.assertRaisesRegex(ValueError, "saved removal attempt"),
+                    ):
                         remove_packages.run(args, frame)
                     probe.assert_not_called()
 

@@ -18,6 +18,23 @@ spec.loader.exec_module(frame)
 
 
 class HostTests(unittest.TestCase):
+    def test_unwritable_operation_report_stops_before_device_contact(self):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(
+                frame.sys,
+                "argv",
+                ["frame.py", "--tv", "192.0.2.1", "--logs", directory, "status"],
+            ),
+            patch.object(frame, "verify_files"),
+            patch("samsung_tv_root.sdb.find_sdb", return_value=Path("/unused")),
+            patch("samsung_tv_root.archive_root.probe") as device,
+            patch.object(frame, "write_json", side_effect=OSError("disk full")),
+            self.assertRaisesRegex(OSError, "disk full"),
+        ):
+            frame.main()
+        device.assert_not_called()
+
     def test_quiet_hours_reject_invalid_or_ambiguous_times_before_tv_access(self):
         for arguments in (
             ["set"],

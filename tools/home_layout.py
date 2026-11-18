@@ -8,13 +8,13 @@ import gzip
 import hashlib
 import http.client
 import json
-import os
 import re
 import secrets
 import shlex
 
 import home_layout_script
 from home import BUILD, MODEL
+from private_records import write_json
 
 MAX_LAYOUT_BYTES = 65536
 COMPONENT = re.compile(r"s/source\.layer\.hdmi@HDMI1(?:/[0-9]+)?\Z")
@@ -244,14 +244,6 @@ def run(args, frame):
         "results": [],
     }
 
-    def save():
-        temporary = report.with_suffix(".tmp")
-        with temporary.open("w") as output:
-            os.chmod(temporary, 0o600)
-            json.dump(evidence, output, indent=2)
-            output.write("\n")
-        os.replace(temporary, report)
-
     def execute(operation, *, before=None, after=None, sources=False, component=None):
         script = home_layout_script.render(operation, before=before, after=after)
         if sources or component is not None:
@@ -269,14 +261,14 @@ def run(args, frame):
             )
         )
         evidence["results"].append(result)
-        save()
+        write_json(report, evidence, replace=True)
         for entry in result.get("commands", []):
             if entry.get("stderr"):
                 print(entry["stderr"], end="")
         frame.check_result(result)
         return result["commands"][0]["stdout"]
 
-    save()
+    write_json(report, evidence)
     try:
         if frame.policy().get("build") != BUILD or frame.policy().get("model") != MODEL:
             raise ValueError("Home layout policy differs from the verified TV")
@@ -306,7 +298,7 @@ def run(args, frame):
                 "before": before,
                 "after": after,
             }
-            save()
+            write_json(report, evidence, replace=True)
             if marker(output, "HOME_LAYOUT_PHASE") != "installed":
                 print(
                     "Installing Apple TV shortcut row; native Settings and Art components are retained.",
@@ -333,6 +325,6 @@ def run(args, frame):
         evidence["error"] = str(error)
         print(f"FAILED: {error}. Recovery evidence retained; inspect before retrying.")
     finally:
-        save()
+        write_json(report, evidence, replace=True)
         print(f"Report: {report}")
     return 0 if evidence["completed"] else 1

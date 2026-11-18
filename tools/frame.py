@@ -21,6 +21,7 @@ from pathlib import Path, PurePosixPath
 import device_scripts
 import home
 import startup
+from private_records import write_json
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -228,7 +229,15 @@ def main():
     )
     packages.add_argument(
         "operation",
-        choices=("prepare", "prepare-returned", "backup", "remove", "status"),
+        choices=(
+            "prepare",
+            "prepare-returned",
+            "backup",
+            "remove",
+            "status",
+            "check-registrations",
+        ),
+        help="check-registrations reads the stock SDK app list for the TV owner",
     )
     packages.add_argument(
         "--backup-dir",
@@ -392,15 +401,23 @@ def main():
     if args.action == "plan":
         print(json.dumps(policy(), indent=2))
         return 0
-    verify_files()
-    from samsung_tv_root.archive_root import probe
-    from samsung_tv_root.sdb import SdbClient, find_sdb
-
+    if args.action != "doctor" and args.tv is None:
+        parser.error("--tv is required for TV operations")
     local_sdb = ROOT / ".local/toolchain/sdb-4.2.36/data/tools/sdb"
     if args.sdb:
         os.environ["SDB"] = str(args.sdb.expanduser().resolve())
     elif not os.environ.get("SDB") and local_sdb.is_file():
         os.environ["SDB"] = str(local_sdb)
+    if args.action == "packages" and args.operation == "check-registrations":
+        if args.backup_dir is not None:
+            parser.error("--backup-dir does not apply to check-registrations")
+        import remove_packages
+
+        return remove_packages.check_registrations(args.tv)
+    verify_files()
+    from samsung_tv_root.archive_root import probe
+    from samsung_tv_root.sdb import SdbClient, find_sdb
+
     payloads = ASSETS / "payloads"
     if args.action == "doctor":
         print("Package checksums: OK")
@@ -421,8 +438,6 @@ def main():
             print(error)
             return 1
         return 0 if shutil.which("openssl") else 1
-    if args.tv is None:
-        parser.error("--tv is required for TV operations")
     if not shutil.which("openssl"):
         raise ValueError("OpenSSL is required")
     if args.action == "home" and args.apple_tv_only:
@@ -455,9 +470,11 @@ def main():
         "action": args.action,
         "operation": getattr(args, "operation", None),
         "group": getattr(args, "group", None),
+        "scope": getattr(args, "scope", None),
         "tv": str(args.tv),
         "completed": False,
     }
+    write_json(report, evidence)
     try:
         if args.action == "quiet-hours":
             import home_layout
@@ -600,10 +617,7 @@ def main():
             if not evidence.get("bundle_staging_cleaned"):
                 evidence["completed"] = False
                 print(f"Bundle staging cleanup incomplete: {stage}", file=sys.stderr)
-        with report.open("x") as output:
-            os.chmod(report, 0o600)
-            json.dump(evidence, output, indent=2)
-            output.write("\n")
+        write_json(report, evidence, replace=True)
         print(f"Report: {report}", file=sys.stderr)
     return 0 if evidence["completed"] else 1
 

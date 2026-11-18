@@ -20,6 +20,7 @@
   var savedTimes = null;
   var scheduleBusy = false;
   var retryTimer;
+  var clockTimer;
   var selected = 0;
   var busy = false;
 
@@ -157,6 +158,8 @@
   }
 
   function updateClock() {
+    window.clearTimeout(clockTimer);
+    if (document.hidden) return;
     var now = new Date();
     var hour = now.getHours();
     var minutes = String(now.getMinutes()).padStart(2, "0");
@@ -166,6 +169,7 @@
     period.className = "period";
     period.textContent = hour >= 12 ? "PM" : "AM";
     clock.appendChild(period);
+    clockTimer = window.setTimeout(updateClock, 60000 - now.getTime() % 60000);
   }
 
   var api = {
@@ -221,8 +225,8 @@
   });
 
   document.addEventListener("visibilitychange", function () {
+    updateClock();
     if (!document.hidden) {
-      updateClock();
       select(selected, true);
       refreshTimes();
     }
@@ -230,7 +234,6 @@
 
   api.setAdapter(adapter);
   updateClock();
-  window.setInterval(updateClock, 1000);
   select(0, true);
   refreshTimes();
 }());

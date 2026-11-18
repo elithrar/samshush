@@ -54,7 +54,8 @@ the changes or patch the root exploit, so check compatibility before updating.
 > if you’re using smaller/quantized or previous-generation models.
 
 Your agent handles dependencies, compatibility checks and recovery using
-[AGENTS.md](AGENTS.md). Device commands use temporary root access, including audits.
+[AGENTS.md](AGENTS.md). The package registration check uses the standard SDK.
+Other TV controls and audits require temporary root access.
 
 ## Findings & Services
 
@@ -123,6 +124,9 @@ Optionally replace the default SmartHub noise with a custom home screen
 - Use `frame.py launchpad install --widget .local/launchpad-build/Shortcuts.wgt`, then `launchpad launch`. Check Apple TV, Settings, Art Mode and Back before assigning Home.
 - Run `launchpad activate --widget .local/launchpad-build/Shortcuts.wgt` to assign the Home button. `launchpad restore` returns it to Samsung Home. See [AGENTS.md](AGENTS.md#home-screen-optional) for complete commands, updates and recovery.
 
+When building an update, use `--weather-from-widget PATH` to keep the previous
+signed widget's weather settings without looking up your location again.
+
 Home uses Samsung's source labels and HDMI-CEC names when the updated quiet-hours
 worker is installed. It refreshes while Home is visible and selects artwork for
 Apple TV, Blu-ray/DVD players and soundbars. HDMI 2 falls back to “Blu-ray” when
@@ -144,10 +148,17 @@ With quiet hours installed, the custom Home screen shows **Sleep** and **Wake** 
 
 ## Optional package removal
 
+`frame.py --tv ADDRESS packages check-registrations` checks whether Samsung's
+Developer Mode app list contains any of the six selected AppIDs. A listed ID
+confirms its registration. The TV still listed the screen-analysis model on
+November 18. The separate `packages status` check covers files and processes.
+
 `packages prepare --backup-dir PATH` disables and stops six assessed packages,
 then copies their installed files, app data, registration evidence and SMACK labels
-to a private backup on your computer. If transfer fails, `packages backup` retries
-that transfer without repeating preparation. `packages remove --backup-dir PATH`
+to a private backup on your computer. The TV releases its temporary copy after
+the host verifies the archive and syncs both the archive and manifest to disk.
+If transfer fails, `packages backup --backup-dir PATH` retries in the same
+directory and preserves an existing matching backup. `packages remove --backup-dir PATH`
 requires a matching backup, unchanged files and the four new service groups blocked.
 It uses the native uninstaller; it does not force-delete firmware packages.
 `packages status` checks registration, files and surviving processes. The optional

@@ -12,7 +12,14 @@ import os
 import re
 import secrets
 import shlex
+import stat
+import subprocess
+import sys
 import tempfile
+from contextlib import contextmanager
+from pathlib import Path
+
+import private_records
 
 PACKAGES = (
     "com.samsung.tv.ai-interpreter-service",
@@ -24,6 +31,7 @@ PACKAGES = (
 )
 ROOT = "/opt/usr/share/samshush-removals-v1"
 GROUPS = ("ai-models", "analytics-context", "presence-sensing", "optional-delivery")
+MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
 
 COMMON = r"""set -euo pipefail
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
@@ -526,6 +534,88 @@ def render(
     return script
 
 
+def listed_registrations(output):
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    if (
+        len(lines) < 5
+        or lines[0] != "Application List for user 5001"
+        or lines[1] != "User's Application"
+        or lines[2].split() != ["Name", "AppID"]
+        or not re.fullmatch(r"={3,}", lines[3])
+        or lines[-1] != lines[3]
+    ):
+        raise ValueError("Expected a complete SDK application list for TV owner 5001")
+
+    found = set()
+    for number, line in enumerate(lines[4:-1], 5):
+        row = re.fullmatch(r"'[^\t]*'[ \t]+'([^'\s]+)'", line)
+        if not row:
+            raise ValueError(f"Malformed SDK application list row {number}")
+        if row[1] in PACKAGES:
+            found.add(row[1])
+    return [package for package in PACKAGES if package in found]
+
+
+def check_registrations(tv):
+    """Return 0 for none listed, 1 for matching AppIDs, or 2 on an SDK error."""
+    from samsung_tv_root.sdb import find_sdb
+
+    def diagnostic(result):
+        # SDK errors can arrive on either stream. Never print the app inventory.
+        message = result.stderr.strip() or result.stdout.strip()
+        if message and not message.startswith(("Application List", "'", "=")):
+            return message.splitlines()[0][:200]
+        return ""
+
+    try:
+        sdk = str(find_sdb())
+        serial = f"{tv}:26101"
+
+        def run(*arguments):
+            return subprocess.run(
+                [sdk, *arguments],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=20,
+                check=False,
+            )
+
+        command = ("-s", serial, "shell", "0", "applist")
+        result = run(*command)
+        if result.returncode or re.search(
+            r"target not found|serial number .* wrong|device.*not found|not connected|offline",
+            diagnostic(result),
+            re.IGNORECASE,
+        ):
+            connected = run("connect", serial)
+            if connected.returncode:
+                raise ValueError(
+                    f"SDB connect exited {connected.returncode}. {diagnostic(connected)}"
+                )
+            result = run(*command)
+        if result.returncode or result.stderr.strip():
+            raise ValueError(
+                f"SDB app-list query exited {result.returncode}. {diagnostic(result)}"
+            )
+        if detail := diagnostic(result):
+            raise ValueError(f"Unexpected SDK app-list response. {detail}")
+        found = listed_registrations(result.stdout)
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+        print(f"Registration check failed: {error}", file=sys.stderr)
+        return 2
+
+    if found:
+        print("Assessed AppIDs listed for TV owner 5001:")
+        for package in found:
+            print(package)
+        return 1
+    print(
+        "No assessed AppIDs listed for TV owner 5001. This check covers SDK app registrations only."
+    )
+    return 0
+
+
 def validate_selection(packages):
     if (
         not isinstance(packages, (list, tuple))
@@ -561,23 +651,86 @@ def attempt_context(record, tv, build, *, pending=False):
     return record["attempt_id"], selected, parent_hash
 
 
-def save_attempt(directory, record):
-    """Durably record the attempt identity before transfer or device access."""
-    temporary = None
+@contextmanager
+def read_backup_file(path, max_bytes):
+    # Nonblocking open lets us reject an accidental FIFO without waiting for a writer.
+    def open_local_file(name, flags):
+        return os.open(name, flags | os.O_NOFOLLOW | os.O_NONBLOCK)
+
+    with open(path, "rb", opener=open_local_file) as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= max_bytes:
+            raise ValueError(f"Invalid backup file type or size: {path.name}")
+        yield stream
+
+
+def read_receipt(path, *, sync=False):
+    with read_backup_file(path, 64 * 1024) as stream:
+        record = json.load(stream)
+        if sync:
+            os.fsync(stream.fileno())
+    if not isinstance(record, dict):
+        raise ValueError(f"Invalid backup receipt: {path.name}")
+    return record
+
+
+def local_backup_context(directory, tv, build, *, require_manifest):
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", dir=directory, delete=False
-        ) as output:
-            temporary = output.name
-            os.chmod(output.name, 0o600)
-            json.dump(record, output, indent=2)
-            output.flush()
-            os.fsync(output.fileno())
-        os.replace(temporary, directory / "attempt.json")
-        temporary = None
-    finally:
-        if temporary is not None:
-            os.unlink(temporary)
+        descriptor = read_receipt(directory / "attempt.json")
+    except FileNotFoundError:
+        attempt = None
+    else:
+        attempt = attempt_context(descriptor, tv, build, pending=True)
+
+    original = ("", None, "")
+    try:
+        manifest = read_receipt(directory / "manifest.json")
+    except FileNotFoundError:
+        if require_manifest:
+            raise
+        return attempt or original, ""
+
+    context = original
+    if "attempt_id" in manifest or "schema" in manifest:
+        context = attempt_context(manifest, tv, build)
+    # The initial descriptor has only an ID. Once populated it also pins the
+    # package selection and the hash of the original six-package backup.
+    if attempt is not None and (
+        attempt[0] != context[0] or (attempt[1] is not None and attempt != context)
+    ):
+        raise ValueError("Backup manifest differs from the saved removal attempt")
+    if (
+        manifest.get("packages") != list(context[1] or PACKAGES)
+        or manifest.get("build") != build
+        or manifest.get("tv") != tv
+    ):
+        raise ValueError("Backup belongs to another TV, build or package selection")
+    checksum = manifest.get("sha256")
+    if not isinstance(checksum, str) or not re.fullmatch(r"[a-f0-9]{64}", checksum):
+        raise ValueError("Invalid checksum in backup manifest")
+    return context, checksum
+
+
+def save_manifest(path, record):
+    """Keep the first complete manifest so a retry preserves the original evidence."""
+    try:
+        private_records.write_json(path, record)
+    except FileExistsError:
+        saved = read_receipt(path, sync=True)
+        if any(
+            saved.get(key) != record.get(key)
+            for key in (
+                "sha256",
+                "packages",
+                "build",
+                "tv",
+                "attempt_id",
+                "parent_backup_sha256",
+                "schema",
+            )
+        ):
+            raise ValueError("Existing backup manifest differs") from None
+        private_records.sync_directory(path.parent)
 
 
 def wrap_owner(script, frame):
@@ -599,7 +752,7 @@ def wrap_owner(script, frame):
 
 
 def digest(path):
-    with path.open("rb") as stream:
+    with read_backup_file(path, MAX_ARCHIVE_BYTES) as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
@@ -607,12 +760,19 @@ def download_archive(client, archive, destination, expected_hash):
     """Use the existing callback transport; TV SDB rejects ordinary file pulls."""
     size_result = client.capture(f"stat -c %s {shlex.quote(archive)}")
     match = re.fullmatch(r"([0-9]+)\s*\[exit:0\]\s*", size_result.output)
-    if not match or not 0 < int(match[1]) <= 512 * 1024 * 1024:
+    if not match or not 0 < int(match[1]) <= MAX_ARCHIVE_BYTES:
         raise ValueError("Invalid or oversized remote backup")
     size = int(match[1])
-    if destination.exists():
-        if destination.is_symlink() or digest(destination) != expected_hash:
+
+    def verify_existing():
+        if digest(destination) != expected_hash:
             raise ValueError("Existing local backup differs; refusing to overwrite it")
+
+    try:
+        verify_existing()
+    except FileNotFoundError:
+        pass
+    else:
         return
     temporary = None
     try:
@@ -632,12 +792,12 @@ def download_archive(client, archive, destination, expected_hash):
                 output.write(data)
             output.flush()
             os.fsync(output.fileno())
-        from pathlib import Path
-
         if digest(Path(temporary)) != expected_hash:
             raise ValueError("Downloaded package backup checksum mismatch")
-        os.replace(temporary, destination)
-        temporary = None
+        try:
+            os.link(temporary, destination)
+        except FileExistsError:
+            verify_existing()
     finally:
         if temporary is not None:
             os.unlink(temporary)
@@ -657,6 +817,7 @@ def run(args, frame):
         + ".tar.gz"
     )
     backup_hash = ""
+    saved_hash = ""
     attempt_id = ""
     selected_packages = None
     parent_backup_hash = ""
@@ -669,7 +830,20 @@ def run(args, frame):
             "--backup-dir is required for prepare/prepare-returned/backup/remove"
         )
     if operation in ("prepare", "prepare-returned"):
+        # Persist the new directory entries as well as their eventual contents.
+        parents_to_sync = [backup.parent]
+        while not parents_to_sync[-1].exists():
+            parents_to_sync.append(parents_to_sync[-1].parent)
+        if operation == "prepare":
+            # Returned-package preparation already exercises hard-link publication
+            # when it saves attempt.json. Probe the volume before creating a backup.
+            with tempfile.NamedTemporaryFile(dir=parents_to_sync[-1]) as probe_file:
+                link = Path(probe_file.name + ".link")
+                os.link(probe_file.name, link)
+                link.unlink()
         backup.mkdir(mode=0o700, parents=True, exist_ok=False)
+        for parent in parents_to_sync:
+            private_records.sync_directory(parent)
         if operation == "prepare-returned":
             attempt_id = secrets.token_hex(8)
             attempt_record = {
@@ -678,36 +852,21 @@ def run(args, frame):
                 "tv": str(args.tv),
                 "build": frame.policy()["build"],
             }
-            save_attempt(backup, attempt_record)
+            private_records.write_json(backup / "attempt.json", attempt_record)
     elif operation in ("backup", "remove"):
         if not backup.is_dir() or backup.is_symlink():
             raise ValueError("Backup/removal requires the original private directory")
-    if operation == "backup":
-        descriptor = backup / "attempt.json"
-        if not descriptor.exists():
-            descriptor = backup / "manifest.json"
-        if descriptor.exists():
-            saved = json.loads(descriptor.read_text())
-            if descriptor.name == "attempt.json" or "attempt_id" in saved:
-                attempt_id, selected_packages, parent_backup_hash = attempt_context(
-                    saved, str(args.tv), frame.policy()["build"], pending=True
-                )
-                attempt_record = saved
-    elif operation == "remove":
-        manifest = json.loads((backup / "manifest.json").read_text())
-        if "attempt_id" in manifest:
-            attempt_id, selected_packages, parent_backup_hash = attempt_context(
-                manifest, str(args.tv), frame.policy()["build"]
-            )
-        if (
-            manifest.get("packages") != list(selected_packages or PACKAGES)
-            or manifest.get("build") != frame.policy()["build"]
-            or manifest.get("tv") != str(args.tv)
-        ):
-            raise ValueError("Backup belongs to another TV, build or package selection")
-        backup_hash = digest(backup / "packages.tar.gz")
-        if backup_hash != manifest["sha256"]:
-            raise ValueError("Local backup checksum changed")
+        context, saved_hash = local_backup_context(
+            backup,
+            str(args.tv),
+            frame.policy()["build"],
+            require_manifest=operation == "remove",
+        )
+        attempt_id, selected_packages, parent_backup_hash = context
+        if operation == "remove":
+            backup_hash = digest(backup / "packages.tar.gz")
+            if backup_hash != saved_hash:
+                raise ValueError("Local backup checksum changed")
 
     args.logs.mkdir(mode=0o700, parents=True, exist_ok=True)
     stamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -715,6 +874,8 @@ def run(args, frame):
     evidence = {
         "action": "packages",
         "operation": operation,
+        "tv": str(args.tv),
+        "backup_dir": str(backup) if backup is not None else None,
         "completed": False,
         "results": [],
     }
@@ -746,12 +907,14 @@ def run(args, frame):
             )
         )
         evidence["results"].append(result)
+        private_records.write_json(report, evidence, replace=True)
         for command in result.get("commands", []):
             print(command.get("stdout", ""), end="", flush=True)
             print(command.get("stderr", ""), end="", flush=True)
         frame.check_result(result)
         return result
 
+    private_records.write_json(report, evidence)
     try:
         result = execute(operation)
         if operation in ("prepare", "prepare-returned", "backup"):
@@ -764,6 +927,10 @@ def run(args, frame):
             if len(matches) != 1:
                 raise ValueError("Missing or ambiguous device backup checksum")
             backup_hash = matches[0]
+            if saved_hash and backup_hash != saved_hash:
+                raise ValueError(
+                    "Prepared backup checksum differs from the saved manifest"
+                )
             if attempt_id:
                 ids = re.findall(
                     r"^RETURNED_ATTEMPT ([a-f0-9]{16})$", output, re.MULTILINE
@@ -792,7 +959,9 @@ def run(args, frame):
                     "tv": str(args.tv),
                     "build": frame.policy()["build"],
                 }
-                save_attempt(backup, attempt_record)
+                private_records.write_json(
+                    backup / "attempt.json", attempt_record, replace=True
+                )
             if operation == "backup":
                 paths = re.findall(
                     r"^BACKUP_PATH (/opt/usr/home/owner/share/tmp/samshush-package-backup-[a-f0-9]{16}\.tar\.gz)$",
@@ -817,29 +986,9 @@ def run(args, frame):
             }
             if attempt_record is not None:
                 manifest.update(attempt_record)
-            manifest_path = backup / "manifest.json"
-            if manifest_path.exists():
-                saved = json.loads(manifest_path.read_text())
-                if any(
-                    saved.get(k) != manifest.get(k)
-                    for k in (
-                        "sha256",
-                        "packages",
-                        "build",
-                        "tv",
-                        "attempt_id",
-                        "parent_backup_sha256",
-                        "schema",
-                    )
-                ):
-                    raise ValueError("Existing backup manifest differs")
-            with manifest_path.open("w") as output_file:
-                os.chmod(output_file.name, 0o600)
-                json.dump(manifest, output_file, indent=2)
-                output_file.flush()
-                os.fsync(output_file.fileno())
-            with local_archive.open("rb") as archive_file:
+            with read_backup_file(local_archive, MAX_ARCHIVE_BYTES) as archive_file:
                 os.fsync(archive_file.fileno())
+            save_manifest(backup / "manifest.json", manifest)
             execute("acknowledge")
         evidence["completed"] = True
     except Exception as error:
@@ -849,8 +998,6 @@ def run(args, frame):
             flush=True,
         )
     finally:
-        with report.open("x") as output_file:
-            os.chmod(output_file.name, 0o600)
-            json.dump(evidence, output_file, indent=2)
+        private_records.write_json(report, evidence, replace=True)
         print(f"Report: {report}", flush=True)
     return 0 if evidence["completed"] else 1

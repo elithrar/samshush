@@ -88,7 +88,7 @@ h1 {
   outline: none;
   box-shadow: 0 .5vw 1.4vw rgba(0, 0, 0, .1);
   transform-origin: center center;
-  transition: background 150ms ease, color 150ms ease, transform 150ms ease, box-shadow 150ms ease;
+  transition: transform 150ms ease;
 }
 
 .tile.selected {

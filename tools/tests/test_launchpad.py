@@ -427,7 +427,38 @@ class LaunchpadTests(unittest.TestCase):
                     Path("build").resolve(),
                     cli=path if option == "--cli" else None,
                     weather_postcode=None,
+                    weather_from_widget=None,
                 )
+
+    def test_command_requires_one_weather_source_at_most(self):
+        common = [
+            "launchpad.py",
+            "--profile",
+            "Samshush",
+            "--output",
+            "build",
+            "--cli",
+            "wrapper",
+            "--weather-from-widget",
+            "prior.wgt",
+        ]
+        with patch.object(launchpad, "build") as build:
+            with (
+                patch.object(sys, "argv", common + ["--weather-postcode", "90210"]),
+                contextlib.redirect_stderr(io.StringIO()),
+                self.assertRaises(SystemExit) as result,
+            ):
+                launchpad.main()
+            self.assertEqual(result.exception.code, 2)
+            build.assert_not_called()
+            with (
+                patch.object(sys, "argv", common),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                launchpad.main()
+            self.assertEqual(
+                build.call_args.kwargs["weather_from_widget"], Path("prior.wgt")
+            )
 
     def test_weather_postcode_build_generates_only_private_configuration(self):
         coordinates = {"latitude": 34.0901, "longitude": -118.4065}
@@ -456,6 +487,84 @@ class LaunchpadTests(unittest.TestCase):
         receipt = json.loads((artifact.parent / "build.json").read_text())
         self.assertEqual(receipt["weather_postcode"], "90210")
         self.assertEqual(receipt["weather"], coordinates)
+
+    def test_previous_weather_is_carried_forward_byte_for_byte_offline(self):
+        sdk = self.sdk()
+        legacy = {name: self.resources[name] for name in launchpad.LEGACY_RESOURCES}
+        legacy["config.xml"] = LEGACY_MANIFEST
+        configured = b'{ "longitude": -70, "latitude": 40.0 }\r\n'
+        for label, previous, expected in (
+            (
+                "configured",
+                self.resources | {launchpad.WEATHER_CONFIG: configured},
+                configured,
+            ),
+            ("disabled", self.resources | {launchpad.WEATHER_CONFIG: b"{ }"}, b"{ }"),
+            ("legacy", legacy, b"{}\n"),
+        ):
+            with (
+                self.subTest(label=label),
+                patch.object(launchpad.urllib.request, "urlopen") as request,
+                patch.object(launchpad.subprocess, "run", side_effect=self.sdk_result),
+            ):
+                write_widget(
+                    self.widget, signed_members(previous | {"ui.js": b"prior release"})
+                )
+                self.resources[launchpad.WEATHER_CONFIG] = expected
+                artifact = launchpad.build(
+                    sdk,
+                    "existing-profile",
+                    self.root / label,
+                    self.source,
+                    weather_from_widget=self.widget,
+                )
+                _, resources = launchpad.signed_widget_resources(artifact, self.source)
+                self.assertEqual(resources[launchpad.WEATHER_CONFIG], expected)
+                receipt = json.loads((artifact.parent / "build.json").read_text())
+                self.assertEqual(receipt["weather"], json.loads(expected))
+                self.assertEqual(
+                    receipt["weather_config_sha256"],
+                    hashlib.sha256(expected).hexdigest(),
+                )
+                self.assertNotIn("weather_postcode", receipt)
+                request.assert_not_called()
+
+    def test_unusable_previous_weather_fails_before_signing(self):
+        sdk = self.sdk()
+        output = self.root / "new-build"
+        foreign = self.resources | {
+            "config.xml": MANIFEST.replace(b".Shortcuts", b".Other")
+        }
+        cases = (
+            (signed_members(foreign), None, "different app identity"),
+            (
+                signed_members(self.resources) | {launchpad.WEATHER_CONFIG: b"{ }"},
+                None,
+                "digest mismatch",
+            ),
+            (signed_members(self.resources), "90210", "Choose one weather source"),
+        )
+        with (
+            patch.object(launchpad.urllib.request, "urlopen") as request,
+            patch.object(launchpad.subprocess, "run") as signer,
+        ):
+            for members, postcode, reason in cases:
+                write_widget(self.widget, members)
+                with (
+                    self.subTest(reason=reason),
+                    self.assertRaisesRegex(ValueError, reason),
+                ):
+                    launchpad.build(
+                        sdk,
+                        "existing-profile",
+                        output,
+                        self.source,
+                        weather_from_widget=self.widget,
+                        weather_postcode=postcode,
+                    )
+            request.assert_not_called()
+            signer.assert_not_called()
+        self.assertFalse(output.exists())
 
     def test_signer_cannot_substitute_valid_but_unrequested_weather_coordinates(self):
         def substitute(command, **kwargs):

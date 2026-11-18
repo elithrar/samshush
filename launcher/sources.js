@@ -5,16 +5,14 @@
   var prefix = "wgt-private/hdmi-sources.";
   var defaults = { 1: "Apple TV", 2: "Blu-ray", 3: "Arc Ultra", 4: "HDMI 4" };
   var ids = { 1: "apple-tv", 2: "hdmi-2", 3: "hdmi-3", 4: "hdmi-4" };
+  var icons = { 1: "apple", 2: "disc", 3: "audio", 4: "hdmi" };
   var tiles = {};
+  var art = {};
+  var title = document.getElementById("selection-title");
   Object.keys(ids).forEach(function (port) {
     tiles[port] = document.querySelector('[data-id="' + ids[port] + '"]');
+    art[icons[port]] = tiles[port].querySelector("svg");
   });
-  var art = {
-    apple: tiles[1].querySelector("svg").cloneNode(true),
-    disc: tiles[2].querySelector("svg").cloneNode(true),
-    audio: tiles[3].querySelector("svg").cloneNode(true),
-    hdmi: tiles[4].querySelector("svg").cloneNode(true)
-  };
   var generation = 0;
   var timer;
 
@@ -50,9 +48,11 @@
   function render(sources) {
     Object.keys(tiles).forEach(function (key) {
       var port = Number(key), tile = tiles[key], view = presentation(port, sources);
-      tile.querySelector(".tile-label").textContent = view.name;
-      tile.setAttribute("aria-label", view.name + ", HDMI " + port + (port === 3 ? ", audio only, unavailable" : ""));
-      if (tile.dataset.art !== view.icon) {
+      var label = tile.querySelector(".tile-label");
+      var accessibleName = view.name + ", HDMI " + port + (port === 3 ? ", audio only, unavailable" : "");
+      if (label.textContent !== view.name) label.textContent = view.name;
+      if (tile.getAttribute("aria-label") !== accessibleName) tile.setAttribute("aria-label", accessibleName);
+      if (icons[port] !== view.icon) {
         var drawing = art[view.icon].cloneNode(true);
         // Paint definitions need unique IDs when two ports use the same artwork.
         drawing.querySelectorAll("[id]").forEach(function (node) {
@@ -63,9 +63,9 @@
           });
         });
         tile.querySelector("svg").replaceWith(drawing);
-        tile.dataset.art = view.icon;
+        icons[port] = view.icon;
       }
-      if (tile.classList.contains("selected")) document.getElementById("selection-title").textContent = view.name;
+      if (tile.classList.contains("selected") && title.textContent !== view.name) title.textContent = view.name;
     });
   }
 
@@ -87,7 +87,7 @@
       fs.openFile(prefix + "reply", "a").close();
       var request = fs.openFile(prefix + "request", "w");
       try { request.writeString(token + "\n"); } finally { request.close(); }
-      var started = Date.now();
+      var deadline = window.performance.now() + 20000;
       function poll() {
         if (current !== generation || document.hidden) return;
         try {
@@ -98,11 +98,15 @@
             try { rows = validate(JSON.parse(text), token); } catch (error) { /* Incomplete or old reply. */ }
           }
           if (rows) { finish(rows); return; }
-          if (Date.now() - started >= 20000) { finish(null); return; }
-          timer = window.setTimeout(poll, 250);
+          var remaining = deadline - window.performance.now();
+          if (remaining <= 0) { finish(null); return; }
+          // The worker normally checks requests every three seconds. Check less
+          // often after its first cycle, while retaining the final deadline read.
+          var delay = remaining > 15000 ? 500 : 2000;
+          timer = window.setTimeout(poll, Math.min(delay, remaining));
         } catch (error) { finish(null); }
       }
-      poll();
+      timer = window.setTimeout(poll, 250);
     } catch (error) { finish(null); }
   }
 
