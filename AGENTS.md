@@ -40,7 +40,7 @@ separate commands and journals. Apply them only within the owner's requested sco
    profile and payloads have evidence only for QN65LS03FWFXZA, Tizen 9, build
    `T-RSMFAKUC-0090-REL-202607141953`. Do not bypass build checks or merely replace a
    build string to support another TV. The app path also requires owner UID 5001.
-   Device commands acquire temporary root, including inspect/status/audit, except
+   `frame.py` device commands acquire temporary root, including inspect/status/audit, except
    `packages check-registrations`, which reads the stock Developer Mode app list.
 6. Keep official downloads immutable. Record source URL, retrieval date, size and
    SHA-256. Downloaded firmware may differ from the installed build. Extracted or
@@ -436,8 +436,8 @@ command targets exactly six removable TPKs: `com.samsung.tv.ai-interpreter-servi
 `com.samsung.tv.context-aware-service`. Their package paths and removability are
 checked live; shared frameworks and firmware RPMs are excluded.
 
-First verify and remove the startup hook, then apply `apps apply --group
-optional-delivery` and the `optional-delivery`, `ai-models`, `analytics-context`
+For the journaled `packages` workflow, first verify and remove the startup hook,
+then apply `apps apply --group optional-delivery` and the `optional-delivery`, `ai-models`, `analytics-context`
 and `presence-sensing` runtime groups. Existing groups and journals stay intact.
 The context group waits 20 seconds for normal shutdown, then terminates only its
 still-pending service cgroups. Other groups retain their existing stop behavior.
@@ -491,11 +491,6 @@ enrolled runtime groups on a new boot. Its package check reported
 `com.samsung.tv.screen-analysis-dbmgr-nb` registered again. The worker recorded
 failure for that boot. Check the package receipt before any further removal.
 
-The November 18 Developer Mode app list also contained this AppID.
-`packages check-registrations` detects such entries without starting apps or
-changing TV state. The SDK list covers owner-visible AppIDs. Use the separate
-package receipt for installed files and processes.
-
 The screen-analysis manager requests the non-branded model through WAS when its
 network subscriber connects, independent of the app auto-update preference. It
 has no verified native app registration or persistent vendor disable marker.
@@ -519,6 +514,27 @@ denial passed live verification. No startup-hook change is required because the
 group has no runtime units. Verify installation is idle before applying it;
 absence of `ses_updating` alone is not sufficient evidence. Fresh-boot and
 retained-feature checks remain separate.
+
+### Single-package removal with the Samsung SDK
+
+On the supported Frame Pro, use this path when the owner explicitly requests
+removal of the returned `com.samsung.tv.screen-analysis-dbmgr-nb` package
+without a fresh backup. Run `frame.py --tv ADDRESS packages check-registrations`
+to confirm that exact AppID is listed. Use the matching serial from `sdb devices`
+as `TV_SERIAL` in this command.
+
+```sh
+sdb -s "$TV_SERIAL" uninstall com.samsung.tv.screen-analysis-dbmgr-nb
+```
+
+Check that the TPK manager reports `key[end] val[ok]` for the exact package.
+Repeat `packages check-registrations` and verify that its AppID has disappeared.
+This SDK operation leaves the Samshush backup and device journals untouched.
+
+On November 18 the native uninstall succeeded. The SDK then listed none of the
+six assessed AppIDs for owner UID 5001, and the public application lookup
+returned HTTP 404 for the removed ID. File cleanup, process absence and reboot
+persistence remain unverified for this removal.
 
 ## Recovery and repeat runs
 

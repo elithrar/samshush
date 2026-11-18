@@ -19,8 +19,8 @@ It uses Python tools and temporary helpers on the TV:
 - **Apply changes:** Samshush saves the original state, blocks selected apps and
   services, and filters the certificate files. The helper sends results back over
   an authenticated TCP connection, then exits. Restore commands undo service and
-  app-disable changes. Optional package removal uses the native uninstaller after
-  a verified backup to your computer.
+  app-disable changes. The `packages remove` command uses the native uninstaller
+  after a verified backup to your computer.
 
 App blocks use persistent settings. An optional startup hook reapplies service
 masks and certificate changes in the background, without your computer. Remove it
@@ -54,8 +54,9 @@ the changes or patch the root exploit, so check compatibility before updating.
 > if you’re using smaller/quantized or previous-generation models.
 
 Your agent handles dependencies, compatibility checks and recovery using
-[AGENTS.md](AGENTS.md). The package registration check uses the standard SDK.
-Other TV controls and audits require temporary root access.
+[AGENTS.md](AGENTS.md). The standard Samsung SDK can check package registrations
+and uninstall the returned screen-analysis model. Other Samshush TV controls
+and audits require temporary root access.
 
 ## Findings & Services
 
@@ -76,7 +77,7 @@ Optional controls still require the owner’s approval on other installations.
 | Viewing Information Services | Manual opt-out recommended | Viewing-data consent is separate from voice settings. Turn it off in the TV’s privacy settings. |
 | Content analysis and iACR | Kept enabled | Content analysis handles logo recognition and HDMI auto-detection. iACR provides playback controls. Disabling these can break useful input features. |
 | Screen-based game/app recognition | Disabled | The detector requests 960×540 frames at a configured 2.5-second interval, then feeds a 64×64 image into an INT8 model. Samshush blocks the recognition launcher and UI-image detector. |
-| Recognition models and AI interpreter | Selected packages removed | The non-branded screen-analysis model manager can reinstall a missing model before boot-time shutdown. Keep the runtime blocks and recheck after restart; removal alone is not a persistent barrier. |
+| Recognition models and AI interpreter | Selected packages removed | The screen-analysis manager can reinstall the non-branded model before boot-time controls take effect. Keep the runtime blocks and recheck after restart. The standard Samsung SDK can uninstall the returned model. |
 | Samsung Analytics app | Removed; service updater blocked | The standalone app and its storage are absent. Its separate service updater is disabled to block that reinstall path; other apps may still collect analytics. |
 | Samsung service updater | Disabled | Blocks its Analytics reinstall path and automatic Samsung Account, Knox and other Samsung service updates. Existing services and manual firmware updates remain enabled. |
 | Visual analysis and subtitle recognition | Selected services disabled | The screen-analysis and cognition managers sit outside the existing game/app recognition block. Disabling them removes food/text discovery and subtitle recognition; ordinary subtitles and accessibility need separate checks. |
@@ -99,8 +100,8 @@ Optional controls still require the owner’s approval on other installations.
 
 Most app controls disable rather than uninstall. Six packages were uninstalled
 after an off-device backup; two later returned and were removed again using a
-fresh backup and separate receipt. On a subsequent boot the screen-analysis
-model package returned again despite the revised shutdown order. The owner confirmed
+fresh backup and separate receipt. The screen-analysis model returned on a
+subsequent boot and was removed with Samsung's SDK. The owner confirmed
 Apple TV picture, soundbar volume, input selection and manual Art Mode still work
 after the original changes. Complete removal persistence and network wake remain
 unverified. This doesn’t cover every microphone input
@@ -149,9 +150,11 @@ With quiet hours installed, the custom Home screen shows **Sleep** and **Wake** 
 ## Optional package removal
 
 `frame.py --tv ADDRESS packages check-registrations` checks whether Samsung's
-Developer Mode app list contains any of the six selected AppIDs. A listed ID
-confirms its registration. The TV still listed the screen-analysis model on
-November 18. The separate `packages status` check covers files and processes.
+Developer Mode app list contains any of the six selected AppIDs. On the tested
+Frame Pro, the owner chose to remove the returned `com.samsung.tv.screen-analysis-dbmgr-nb`
+package without a new backup. Samsung's native `sdb uninstall` succeeded and
+the AppID disappeared from the list. The separate `packages status` check
+covers installed files and processes. [Single-package procedure](AGENTS.md#single-package-removal-with-the-samsung-sdk)
 
 `packages prepare --backup-dir PATH` disables and stops six assessed packages,
 then copies their installed files, app data, registration evidence and SMACK labels
