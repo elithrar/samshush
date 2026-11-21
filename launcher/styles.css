@@ -34,6 +34,9 @@ button { font: inherit; -webkit-tap-highlight-color: transparent; }
   position: absolute;
   top: 8.7%;
   right: 7%;
+  display: flex;
+  align-items: center;
+  gap: .36em;
   font-size: 2.645vw;
   font-weight: 600;
   letter-spacing: -.06em;
@@ -41,6 +44,9 @@ button { font: inherit; -webkit-tap-highlight-color: transparent; }
   font-variant-numeric: tabular-nums;
   text-shadow: 0 2px 12px rgba(0, 0, 0, .5);
 }
+
+#microphone-recording { display: flex; color: #ffab86; filter: drop-shadow(0 1px 3px #242029); }
+#microphone-recording svg { width: .73em; height: .73em; }
 
 .clock .period { margin-left: .45em; font-size: .44em; letter-spacing: .02em; font-weight: 500; }
 

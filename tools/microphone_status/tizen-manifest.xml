@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns="http://tizen.org/ns/packages" api-version="9.0" package="org.samshush.micstatus" version="1.0.0">
+  <profile name="tv"/>
+  <service-application appid="org.samshush.micstatus" exec="MicrophoneStatus.dll" type="dotnet"
+                       multiple="false" taskmanage="false">
+    <label>Microphone status</label>
+    <datacontrol providerid="http://samshush.local/datacontrol/provider/MicrophoneStatus"
+                 access="ReadOnly" type="Map" trusted="true"/>
+  </service-application>
+  <privileges>
+    <privilege>http://tizen.org/privilege/datasharing</privilege>
+  </privileges>
+</manifest>

@@ -37,7 +37,8 @@ WEATHER_RESOURCES = (
     "water-lilies.jpg",
 )
 SCHEDULE_RESOURCES = WEATHER_RESOURCES + ("time-controls.js",)
-RESOURCES = SCHEDULE_RESOURCES + ("sources.js",)
+SOURCE_NAME_RESOURCES = SCHEDULE_RESOURCES + ("sources.js",)
+RESOURCES = SOURCE_NAME_RESOURCES + ("microphone.js",)
 WEATHER_CONFIG = "weather-config.json"
 WEATHER_ORIGIN = "https://api.open-meteo.com"
 LEGACY_RESOURCES = tuple(name for name in WEATHER_RESOURCES if name != "weather.js")
@@ -89,6 +90,8 @@ def manifest_identity(data, resources=RESOURCES):
     nodes = widget.findall(TIZEN_NS + "privilege")
     privileges = [node.get("name") for node in nodes]
     permitted = PRIVILEGES.copy()
+    if "microphone.js" in resources:
+        permitted.add("http://tizen.org/privilege/datacontrol.consumer")
     if "weather.js" in resources:
         permitted.add("http://tizen.org/privilege/internet")
     if "time-controls.js" in resources:
@@ -240,6 +243,7 @@ def signed_widget_resources(path, source=SOURCE, *, previous=False):
                     LEGACY_RESOURCES,
                     WEATHER_RESOURCES + (WEATHER_CONFIG,),
                     SCHEDULE_RESOURCES + (WEATHER_CONFIG,),
+                    SOURCE_NAME_RESOURCES + (WEATHER_CONFIG,),
                 ):
                     if set(names) == set(old + SIGNATURES):
                         resources = old

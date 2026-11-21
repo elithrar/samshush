@@ -31,12 +31,16 @@ WEATHER_MANIFEST = b"""<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen=
 <tizen:privilege name="http://tizen.org/privilege/internet"/>
 <access origin="https://api.open-meteo.com" subdomains="false"/>
 </widget>"""
-MANIFEST = WEATHER_MANIFEST.replace(
+SCHEDULE_MANIFEST = WEATHER_MANIFEST.replace(
     b"</widget>",
     b"""<tizen:privilege name="http://tizen.org/privilege/filesystem.read"/>
 <tizen:privilege name="http://tizen.org/privilege/filesystem.write"/>
 </widget>""",
 ).replace(b'version="0.2.0"', b'version="0.3.0"')
+MANIFEST = SCHEDULE_MANIFEST.replace(
+    b"</widget>",
+    b'<tizen:privilege name="http://tizen.org/privilege/datacontrol.consumer"/></widget>',
+)
 LEGACY_MANIFEST = WEATHER_MANIFEST.replace(
     b'<tizen:privilege name="http://tizen.org/privilege/internet"/>\n', b""
 ).replace(b'<access origin="https://api.open-meteo.com" subdomains="false"/>\n', b"")
@@ -103,6 +107,7 @@ class LaunchpadTests(unittest.TestCase):
             "device.js": b"window.testDevice = true;",
             "time-controls.js": b"window.testSchedule = true;",
             "sources.js": b"window.testSources = true;",
+            "microphone.js": b"window.testMicrophone = true;",
             "weather.js": b"window.testWeather = true;",
             "icon.png": b"\x89PNG\r\n\x1a\nfixture",
             "water-lilies.jpg": b"\xff\xd8\xff\xd9fixture",
@@ -233,7 +238,15 @@ class LaunchpadTests(unittest.TestCase):
         identity, files = launchpad.signed_widget_resources(self.widget, previous=True)
         self.assertEqual(identity.app, "Gxqk7W2na5.Shortcuts")
         self.assertEqual(files, previous)
-        schedule = {k: v for k, v in self.resources.items() if k != "sources.js"}
+        before_microphone = self.resources.copy()
+        del before_microphone["microphone.js"]
+        before_microphone["config.xml"] = SCHEDULE_MANIFEST
+        write_widget(self.widget, signed_members(before_microphone))
+        self.assertEqual(
+            launchpad.signed_widget_resources(self.widget, previous=True)[1],
+            before_microphone,
+        )
+        schedule = {k: v for k, v in before_microphone.items() if k != "sources.js"}
         write_widget(self.widget, signed_members(schedule))
         self.assertEqual(
             launchpad.signed_widget_resources(self.widget, previous=True)[1], schedule

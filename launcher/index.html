@@ -11,6 +11,7 @@
     <script src="device.js" defer></script>
     <script src="time-controls.js" defer></script>
     <script src="ui.js" defer></script>
+    <script src="microphone.js" defer></script>
     <script src="sources.js" defer></script>
     <script src="weather.js" defer></script>
   </head>
@@ -27,7 +28,15 @@
           <a class="weather-credit" href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer" tabindex="-1" aria-label="Weather data by Open-Meteo">Open-Meteo</a>
         </div>
       </div>
-      <time class="clock" id="clock" aria-label="Current time"></time>
+      <div class="clock">
+        <span id="microphone-recording" role="img" aria-label="Microphone recording" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="9" y="2" width="6" height="13" rx="3" fill="currentColor"/>
+            <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v4m-3 0h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <time id="clock" aria-label="Current time"></time>
+      </div>
 
       <section class="launcher" aria-labelledby="selection-title">
         <h1 id="selection-title">Apple TV</h1>

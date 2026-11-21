@@ -169,6 +169,32 @@ and today’s forecast every ten minutes while visible. The UI hides expired dat
 resources and a matching applied Home journal before the SDK replacement, then
 verifies the new resources and unchanged journal. Retain both private packages.
 
+### Home microphone indicator
+
+Home 0.5.0 reads a trusted, read-only Tizen DataControl MAP from
+`org.samshush.micstatus`. Build the provider using the TV 9 framework, .NET 6
+and the same Samsung author profile as Home. Install it with the ordinary SDK.
+
+```sh
+python3 tools/microphone_status/build.py --cli /path/to/tizen --profile Samshush --output .local/microphone-status
+/path/to/tizen install -s TV_SERIAL --name org.samshush.micstatus-1.0.0.tpk -- .local/microphone-status
+```
+
+The provider answers only Home's `recording` query. It checks Tizen Sound
+Manager's input-only built-in microphone and, on the supported model, the
+named mic0/mic1 capture streams when their ALSA status files are readable.
+A running stream on either source turns on the icon. Decoder audio, playback,
+USB, the remote and the soundbar are outside this indicator. Neither package
+requests access to audio samples. Home polls once per second while visible.
+An active reading expires two seconds after its request, even if the next
+query hangs. Hiding Home clears the icon and invalidates pending replies.
+
+To remove the provider, use the standard Tizen SDK uninstall for
+`org.samshush.micstatus`. Home then leaves the indicator hidden. The standard
+SDK can replace Home with the retained previous signed widget.
+
+### Home routing
+
 `launchpad activate` uses the bounded `LaunchpadRouting` helper whose source is
 in `tools/launchpad_routing.py`. The physical Home path on this exact firmware
 resolves operation `http://tizen.org/appcontrol/operation/main` as root. Inspect

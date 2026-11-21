@@ -128,6 +128,11 @@ Optionally replace the default SmartHub noise with a custom home screen
 When building an update, use `--weather-from-widget PATH` to keep the previous
 signed widget's weather settings without looking up your location again.
 
+An orange microphone appears to the left of the clock while the TV reports its
+built-in microphone is capturing audio. Home shows nothing there when the input
+is idle or its status is unavailable. The indicator requires the separately
+signed [microphone status provider](AGENTS.md#home-microphone-indicator).
+
 Home uses Samsung's source labels and HDMI-CEC names when the updated quiet-hours
 worker is installed. It refreshes while Home is visible and selects artwork for
 Apple TV, Blu-ray/DVD players and soundbars. HDMI 2 falls back to “Blu-ray” when
