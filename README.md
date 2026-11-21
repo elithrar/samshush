@@ -120,6 +120,8 @@ helper checks, apply rolls back if a helper survives the manager shutdown.
 
 Optionally replace the default SmartHub noise with a custom home screen
 
+![Home Screen preview with four six-hour forecasts, a rain total in inches, and the Apple TV tile selected](docs/images/home-screen.webp)
+
 - Create a [Samsung TV signing profile](https://developer.samsung.com/smarttv/develop/tools/additional-tools/vscode/creating-certificates.html) for your TV.
 - Build with `uv run --project tools tools/launchpad.py --sdk /path/to/tizen-studio --profile Samshush --output .local/launchpad-build`. Add `--weather-postcode "$TV_WEATHER_POSTCODE"` for Celsius weather. Each of the four columns shows the starting temperature, weather icon and total forecast rain in inches for its six-hour window. Your location stays in private build files.
 - Use `frame.py launchpad install --widget .local/launchpad-build/Shortcuts.wgt`, then `launchpad launch`. Check Apple TV, Settings, Art Mode and Back before assigning Home.
