@@ -94,7 +94,7 @@ Optional controls still require the owner’s approval on other installations.
 | eMudhra / emSign trust roots | Four selected roots removed | Samshush filters these roots from 11 certificate files and leaves other certificates intact. Embedded app trust stores and cached certificates are unaffected. |
 | Automatic firmware updates | Auto Update off; update manually | Check compatibility before installing firmware. An update can reset the changes or patch the root exploit. |
 | Home layout and startup | Optional native presets | An Apple TV-only row simplifies Samsung’s existing interface. The full-screen replacement below is separate; its Samsung Home fallback retains the original row. |
-| Full-screen shortcut Home | Optional replacement applied | Open Apple TV, HDMI ports, Settings and Art over a Monet background from the Home button. Back returns to Samsung Home; optional weather adds current conditions and today’s high/low. |
+| Full-screen shortcut Home | Optional replacement applied | Open Apple TV, HDMI ports, Settings and Art over a Monet background. Back returns to Samsung Home. Optional weather shows current conditions, today’s high/low and four six-hour forecasts. |
 | Art and the Spotlight screensaver | Optional quiet hours and automatic Art Mode | Choose when full-screen Art should put the Frame in standby. To replace Samsung’s idle Spotlight screensaver with artwork throughout the day, enable `--spotlight-art`. |
 | Settings, manual Art Mode, playback, browser, Netflix, networking, One Connect and DRM | Kept enabled | These provide the TV’s core functions. Preserve their shared runtimes and unrelated trust certificates. |
 
@@ -121,7 +121,7 @@ helper checks, apply rolls back if a helper survives the manager shutdown.
 Optionally replace the default SmartHub noise with a custom home screen
 
 - Create a [Samsung TV signing profile](https://developer.samsung.com/smarttv/develop/tools/additional-tools/vscode/creating-certificates.html) for your TV.
-- Build with `uv run --project tools tools/launchpad.py --sdk /path/to/tizen-studio --profile Samshush --output .local/launchpad-build`. Add `--weather-postcode "$TV_WEATHER_POSTCODE"` for Celsius weather and today's forecast; your location stays in private build files.
+- Build with `uv run --project tools tools/launchpad.py --sdk /path/to/tizen-studio --profile Samshush --output .local/launchpad-build`. Add `--weather-postcode "$TV_WEATHER_POSTCODE"` for Celsius weather. Each of the four columns shows the temperature and conditions at the start of a six-hour window and any rain forecast during it. Your location stays in private build files.
 - Use `frame.py launchpad install --widget .local/launchpad-build/Shortcuts.wgt`, then `launchpad launch`. Check Apple TV, Settings, Art Mode and Back before assigning Home.
 - Run `launchpad activate --widget .local/launchpad-build/Shortcuts.wgt` to assign the Home button. `launchpad restore` returns it to Samsung Home. See [AGENTS.md](AGENTS.md#home-screen-optional) for complete commands, updates and recovery.
 

@@ -1,4 +1,4 @@
-/* Open-Meteo current and daily fields: https://open-meteo.com/en/docs */
+/* Open-Meteo weather fields: https://open-meteo.com/en/docs */
 (function () {
   "use strict";
 
@@ -8,6 +8,7 @@
   var current = document.getElementById("weather-current");
   var icon = document.getElementById("weather-icon");
   var forecast = document.getElementById("weather-forecast");
+  var periods = document.getElementById("weather-periods");
   var config = null;
   var configured = false;
   var disabled = false;
@@ -67,6 +68,42 @@
     return { latitude: value.latitude, longitude: value.longitude };
   }
 
+  function readPeriods(value, now) {
+    var h = value.hourly;
+    var units = value.hourly_units;
+    var fields = ["time", "temperature_2m", "weather_code", "is_day", "rain", "showers"];
+    if (!h || !units || units.time !== "unixtime" || units.temperature_2m !== "°C" ||
+        units.rain !== "mm" || units.showers !== "mm" ||
+        !fields.every(function (key) { return Array.isArray(h[key]) && h[key].length === 25; }) ||
+        !h.time.every(function (time, i) { return Number.isSafeInteger(time) && time === h.time[0] + i * 3600; }) ||
+        typeof value.timezone !== "string" || !value.timezone ||
+        now / 1000 < h.time[0] || now / 1000 >= h.time[0] + 3600) return [];
+
+    var hour;
+    try {
+      hour = new Intl.DateTimeFormat("en-US", { timeZone: value.timezone, hour: "numeric", minute: "2-digit", hour12: true });
+    } catch (error) { return []; }
+    function label(seconds) {
+      return hour.format(seconds * 1000).replace(":00", "").replace(/\s+/g, " ");
+    }
+    var result = [];
+    for (var start = 0; start < 24; start += 6) {
+      if (!finite(h.temperature_2m[start], -100, 70) ||
+          (h.is_day[start] !== 0 && h.is_day[start] !== 1)) return [];
+      var total = 0, wet = false;
+      for (var i = start; i < start + 6; i++) {
+        // Open-Meteo reports rain and showers for the hour ending at each timestamp.
+        var rain = h.rain[i + 1], showers = h.showers[i + 1];
+        if (!validCode(h.weather_code[i]) || !finite(rain, 0, 2000) || !finite(showers, 0, 2000)) return [];
+        total += rain + showers;
+        if (conditions[h.weather_code[i]][1] === "rain") wet = true;
+      }
+      result.push({ start: label(h.time[start]), end: label(h.time[start + 6]), temperature: h.temperature_2m[start],
+        code: h.weather_code[start], day: h.is_day[start], rain: total, wet: wet });
+    }
+    return result;
+  }
+
   function readWeather(value, now) {
     var c = value && value.current;
     var d = value && value.daily;
@@ -90,14 +127,15 @@
     return { temperature: c.temperature_2m, code: c.weather_code, day: c.is_day,
       high: d.temperature_2m_max[0], low: d.temperature_2m_min[0], dailyCode: d.weather_code[0],
       expires: Math.min(Math.min(now, observed) + maxAge, ((date + 1) * 86400 - offset) * 1000),
-      date: date, offset: offset };
+      date: date, offset: offset, periods: readPeriods(value, now) };
   }
 
   function urlFor(location) {
     return "https://api.open-meteo.com/v1/forecast?latitude=" + encodeURIComponent(location.latitude) +
       "&longitude=" + encodeURIComponent(location.longitude) +
       "&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min,weather_code" +
-      "&temperature_unit=celsius&timezone=auto&forecast_days=1&timeformat=unixtime";
+      "&hourly=temperature_2m,weather_code,is_day,rain,showers" +
+      "&temperature_unit=celsius&timezone=auto&forecast_days=1&forecast_hours=25&timeformat=unixtime";
   }
 
   function jsonRequest(url) {
@@ -179,19 +217,39 @@
     }
   }
 
+  function symbolFor(code, day) {
+    var symbol = conditions[code][1];
+    if (!day && symbol === "sun") return symbols.moon;
+    if (!day && symbol === "partly") return symbols.nightPartly;
+    return symbols[symbol];
+  }
+
+  function renderPeriod(period) {
+    var amount = Math.round(period.rain * 10) / 10;
+    var rain = "";
+    if (amount > 0) rain = amount + " mm rain";
+    else if (period.rain > 0) rain = "Trace rain";
+    else if (period.wet) rain = "Rain";
+    var label = conditions[period.code][0] + (period.day ? "" : " at night");
+    return '<li class="weather-period"><span class="period-time">' + period.start + "–" + period.end + '</span>' +
+      '<span class="period-conditions"><svg class="weather-icon period-icon" viewBox="0 0 32 32" role="img" aria-label="' +
+      label + '">' + symbolFor(period.code, period.day) + '</svg><span class="period-temperature">' +
+      Math.round(period.temperature) + '°</span></span>' +
+      (rain ? '<span class="period-rain">' + rain + '</span>' : '') + '</li>';
+  }
+
   function render(weather) {
     var condition = conditions[weather.code];
-    var symbol = condition[1];
-    if (weather.day === 0 && symbol === "sun") symbol = "moon";
-    if (weather.day === 0 && symbol === "partly") symbol = "nightPartly";
     current.textContent = Math.round(weather.temperature) + "°C";
     icon.setAttribute("viewBox", "0 0 32 32");
     icon.setAttribute("role", "img");
     icon.setAttribute("aria-label", condition[0] + (weather.day === 0 ? " at night" : ""));
-    icon.innerHTML = symbols[symbol];
+    icon.innerHTML = symbolFor(weather.code, weather.day);
     forecast.textContent = conditions[weather.dailyCode][0] + " · H " + Math.round(weather.high) + "°  L " + Math.round(weather.low) + "°";
     forecast.setAttribute("aria-label", "Today: " + conditions[weather.dailyCode][0] + ", high " +
       Math.round(weather.high) + ", low " + Math.round(weather.low) + " degrees Celsius");
+    periods.innerHTML = weather.periods.map(renderPeriod).join("");
+    periods.hidden = weather.periods.length === 0;
     container.hidden = false;
     window.clearTimeout(expiryTimer);
     expiryTimer = window.setTimeout(hideExpired, Math.max(0, weather.expires - Date.now()));
@@ -271,7 +329,7 @@
   }
 
   window.LauncherWeather = { refresh: refresh, stop: stop };
-  if (!container || !current || !icon || !forecast || typeof window.fetch !== "function" ||
+  if (!container || !current || !icon || !forecast || !periods || typeof window.fetch !== "function" ||
       typeof window.AbortController !== "function" || typeof window.XMLHttpRequest !== "function") { disabled = true; return; }
   container.hidden = true;
   document.addEventListener("visibilitychange", visibilityChanged);

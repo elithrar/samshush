@@ -20,15 +20,44 @@ function fixture(now, extra = {}) {
   };
 }
 
+function hourlyFixture(now, { timezone = "UTC", offset = 0 } = {}) {
+  const hourStart = Math.floor((now / 1000 + offset) / 3600) * 3600 - offset;
+  const value = fixture(now, {
+    timezone,
+    utc_offset_seconds: offset,
+    hourly_units: { time: "unixtime", temperature_2m: "°C", weather_code: "wmo code", is_day: "", rain: "mm", showers: "mm" },
+    hourly: {
+      time: Array.from({ length: 25 }, (_, index) => hourStart + index * 3600),
+      temperature_2m: Array.from({ length: 25 }, (_, index) => 10 + index),
+      weather_code: Array(25).fill(0), is_day: Array(25).fill(1),
+      rain: Array(25).fill(0), showers: Array(25).fill(0)
+    }
+  });
+  value.daily.time[0] = Math.floor((now / 1000 + offset) / 86400) * 86400 - offset;
+  return value;
+}
+
+function periods(h) {
+  const strip = h.elements["weather-periods"];
+  assert.equal(strip.hidden, false);
+  const rows = [...strip.innerHTML.matchAll(/<li\b[^>]*\bclass="weather-period"[^>]*>([\s\S]*?)<\/li>/g)];
+  assert.equal(rows.length, 4);
+  return rows.map(([, row]) => {
+    const field = name => row.match(new RegExp(`class="period-${name}"[^>]*>([^<]+)<`))?.[1];
+    return { time: field("time"), temperature: field("temperature"), rain: field("rain"),
+      condition: row.match(/<svg\b[^>]*\baria-label="([^"]+)"/)?.[1] };
+  });
+}
+
 function createWeather(options = {}) {
-  let now = Date.UTC(2026, 5, 1, 12);
+  let now = options.now ?? Date.UTC(2026, 5, 1, 12);
   let nextTimer = 0;
   const timers = new Map();
   const requests = [];
   const configs = [];
   const logs = [];
   const events = new Map();
-  const elements = Object.fromEntries(["weather", "weather-current", "weather-icon", "weather-forecast"].map(id =>
+  const elements = Object.fromEntries(["weather", "weather-current", "weather-icon", "weather-forecast", "weather-periods"].map(id =>
     [id, { hidden: true, textContent: "", innerHTML: "", attributes: {},
       setAttribute(name, value) { this.attributes[name] = value; } }]));
   const document = {
@@ -112,7 +141,8 @@ test("local configuration is bounded, supports packaged file URLs, and exposes n
   assert.deepEqual(Object.fromEntries(url.searchParams), {
     latitude: "0", longitude: "0", current: "temperature_2m,weather_code,is_day",
     daily: "temperature_2m_max,temperature_2m_min,weather_code", temperature_unit: "celsius",
-    timezone: "auto", forecast_days: "1", timeformat: "unixtime"
+    hourly: "temperature_2m,weather_code,is_day,rain,showers", timezone: "auto",
+    forecast_days: "1", forecast_hours: "25", timeformat: "unixtime"
   });
   assert.equal(h.requests[0].settings.credentials, "omit");
   assert.equal(h.requests[0].settings.cache, "no-store");
@@ -123,6 +153,82 @@ test("local configuration is bounded, supports packaged file URLs, and exposes n
   assert.equal(h.elements["weather-forecast"].textContent, "Light rain · H 19°  L 12°");
   assert.equal(h.elements["weather-icon"].attributes["aria-label"], "Light rain");
   assert.match(h.elements["weather-icon"].innerHTML, /<path/);
+});
+
+test("four six-hour forecasts use the starting conditions and include rain throughout each window", async () => {
+  const h = createWeather({ now: Date.UTC(2026, 5, 1, 12, 37) });
+  await h.configure();
+  const value = hourlyFixture(h.now);
+  const hourly = value.hourly;
+  hourly.rain[0] = 9; // Previous hour, outside the forecast.
+  hourly.rain[1] = 0.3;
+  hourly.rain[4] = 0.9;
+  hourly.showers[6] = 1.1; // Hour ending at the first boundary.
+  hourly.weather_code[6] = 2;
+  hourly.weather_code[9] = 61; // Rain is forecast, even though the model gives zero mm.
+  hourly.is_day[12] = 0;
+  hourly.weather_code[14] = 73; // A snow-only interval has no rain annotation.
+  hourly.showers[24] = 0.7; // Last hour of the 24-hour forecast.
+  await h.respond(value);
+  const rows = periods(h);
+  assert.deepEqual(rows.map(row => row.time), ["12 PM–6 PM", "6 PM–12 AM", "12 AM–6 AM", "6 AM–12 PM"]);
+  assert.deepEqual(rows.map(row => row.temperature), ["10°", "16°", "22°", "28°"]);
+  assert.deepEqual(rows.map(row => row.rain), ["2.3 mm rain", "Rain", undefined, "0.7 mm rain"]);
+  assert.equal(rows[0].condition, "Clear");
+  assert.equal(rows[1].condition, "Partly cloudy");
+  assert.match(rows[2].condition, /clear.*night/i);
+  assert.equal(h.elements["weather-current"].textContent, "17°C");
+  assert.equal(h.elements["weather-forecast"].textContent, "Light rain · H 19°  L 12°");
+});
+
+test("windows span six elapsed hours across both local daylight-saving transitions", async t => {
+  for (const [name, start, offset, expected] of [
+    ["spring forward", Date.UTC(2026, 2, 8, 5), -5, ["12 AM–7 AM", "7 AM–1 PM", "1 PM–7 PM", "7 PM–1 AM"]],
+    ["fall back", Date.UTC(2026, 10, 1, 4), -4, ["12 AM–5 AM", "5 AM–11 AM", "11 AM–5 PM", "5 PM–11 PM"]]
+  ]) {
+    await t.test(name, async () => {
+      const h = createWeather({ now: start + 15 * minute });
+      await h.configure();
+      await h.respond(hourlyFixture(h.now, { timezone: "America/New_York", offset: offset * 3600 }));
+      assert.deepEqual(periods(h).map(row => row.time), expected);
+    });
+  }
+});
+
+test("a location's quarter-hour UTC offset does not shift its forecast windows", async () => {
+  const h = createWeather({ now: Date.UTC(2026, 5, 1, 6, 46) }); // 12:31 PM in Kathmandu.
+  await h.configure();
+  await h.respond(hourlyFixture(h.now, { timezone: "Asia/Kathmandu", offset: 5 * 3600 + 45 * 60 }));
+  assert.deepEqual(periods(h).map(row => row.time), ["12 PM–6 PM", "6 PM–12 AM", "12 AM–6 AM", "6 AM–12 PM"]);
+});
+
+test("an incomplete or unverifiable hourly update clears the strip while current and daily weather remain available", async t => {
+  for (const [name, invalidate] of [
+    ["hourly missing", v => { delete v.hourly; }],
+    ["missing last hour", v => { v.hourly.time.pop(); }],
+    ["missing final shower amount", v => { v.hourly.showers.pop(); }],
+    ["missing interval", v => { v.hourly.time[8] = v.hourly.time[9]; }],
+    ["incomplete rain estimate", v => { v.hourly.rain[2] = null; }],
+    ["rain in unexpected units", v => { v.hourly_units.rain = "inch"; }],
+    ["hourly starts in the future", v => { v.hourly.time = v.hourly.time.map(time => time + 3600); }],
+    ["location timezone missing", v => { delete v.timezone; }]
+  ]) {
+    await t.test(name, async () => {
+      const h = createWeather();
+      await h.configure();
+      await h.respond(hourlyFixture(h.now));
+      assert.equal(h.elements["weather-periods"].hidden, false);
+      await h.advance(10 * minute);
+      const update = hourlyFixture(h.now);
+      update.current.temperature_2m = 18;
+      invalidate(update);
+      await h.respond(update);
+      assert.equal(h.elements["weather-periods"].hidden, true);
+      assert.equal(h.elements.weather.hidden, false);
+      assert.equal(h.elements["weather-current"].textContent, "18°C");
+      assert.equal(h.elements["weather-forecast"].textContent, "Light rain · H 19°  L 12°");
+    });
+  }
 });
 
 test("empty, invalid and unavailable configuration never sends coordinates", async t => {

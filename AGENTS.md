@@ -163,8 +163,13 @@ not certificate trust. The SDK handles certificate-chain and author validation.
 
 Weather uses a generated `weather-config.json` inside private signed output. Never
 put the owner’s postcode or coordinates in tracked source, examples or fixtures.
-The widget permits only HTTPS Open-Meteo access and refreshes current conditions
-and today’s forecast every ten minutes while visible. The UI hides expired data.
+The widget refreshes Open-Meteo weather every ten minutes while visible. One HTTPS
+request supplies current conditions, today's high/low and 25 hourly timestamps.
+Starting with the current hour, Home groups the forecast into four six-hour
+columns. Each shows its local time range, starting temperature and condition,
+and total liquid rain and showers for the six hours. Open-Meteo timestamps each
+rain amount at the end of its hour. Incomplete hourly data hides the columns.
+Expired weather hides the whole display.
 `launchpad update` requires the previous signed widget, checks its installed
 resources and a matching applied Home journal before the SDK replacement, then
 verifies the new resources and unchanged journal. Retain both private packages.
