@@ -81,11 +81,8 @@
 
     var hour;
     try {
-      hour = new Intl.DateTimeFormat("en-US", { timeZone: value.timezone, hour: "numeric", minute: "2-digit", hour12: true });
+      hour = new Intl.DateTimeFormat("en-US", { timeZone: value.timezone, hour: "numeric", hour12: true });
     } catch (error) { return []; }
-    function label(seconds) {
-      return hour.format(seconds * 1000).replace(":00", "").replace(/\s+/g, " ");
-    }
     var result = [];
     for (var start = 0; start < 24; start += 6) {
       if (!finite(h.temperature_2m[start], -100, 70) ||
@@ -98,7 +95,7 @@
         total += rain + showers;
         if (conditions[h.weather_code[i]][1] === "rain") wet = true;
       }
-      result.push({ start: label(h.time[start]), end: label(h.time[start + 6]), temperature: h.temperature_2m[start],
+      result.push({ start: hour.format(h.time[start] * 1000).replace(/\s+/g, " "), temperature: h.temperature_2m[start],
         code: h.weather_code[start], day: h.is_day[start], rain: total, wet: wet });
     }
     return result;
@@ -231,7 +228,7 @@
     else if (period.rain > 0) rain = "Trace rain";
     else if (period.wet) rain = "Rain";
     var label = conditions[period.code][0] + (period.day ? "" : " at night");
-    return '<li class="weather-period"><span class="period-time">' + period.start + "–" + period.end + '</span>' +
+    return '<li class="weather-period"><span class="period-time">' + period.start + '</span>' +
       '<span class="period-conditions"><svg class="weather-icon period-icon" viewBox="0 0 32 32" role="img" aria-label="' +
       label + '">' + symbolFor(period.code, period.day) + '</svg><span class="period-temperature">' +
       Math.round(period.temperature) + '°</span></span>' +

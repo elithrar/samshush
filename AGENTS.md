@@ -166,7 +166,7 @@ put the owner’s postcode or coordinates in tracked source, examples or fixture
 The widget refreshes Open-Meteo weather every ten minutes while visible. One HTTPS
 request supplies current conditions, today's high/low and 25 hourly timestamps.
 Starting with the current hour, Home groups the forecast into four six-hour
-columns. Each shows its local time range, starting temperature and condition,
+columns. Each shows its local start hour, starting temperature and condition,
 and total liquid rain and showers for the six hours. Open-Meteo timestamps each
 rain amount at the end of its hour. Incomplete hourly data hides the columns.
 Expired weather hides the whole display.

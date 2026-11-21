@@ -66,16 +66,16 @@ button { font: inherit; -webkit-tap-highlight-color: transparent; }
 .weather-periods {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  width: 40vw;
+  width: 26vw;
   margin: 1.25vw 0 0;
   padding: .85vw 0 0;
   border-top: 1px solid rgba(255, 255, 255, .4);
   list-style: none;
 }
 .weather-period { min-width: 0; line-height: 1.2; font-variant-numeric: tabular-nums; }
-.weather-period + .weather-period { padding-left: 1vw; border-left: 1px solid rgba(255, 255, 255, .32); }
+.weather-period + .weather-period { padding-left: .55vw; border-left: 1px solid rgba(255, 255, 255, .32); }
 .period-time { display: block; font-size: 1.05vw; font-weight: 600; }
-.period-conditions { display: flex; align-items: center; gap: .38vw; margin-top: .42vw; }
+.period-conditions { display: flex; align-items: center; gap: .3vw; margin-top: .42vw; }
 .period-icon { width: 1.5vw; height: 1.5vw; flex: none; }
 .period-temperature { font-size: 1.43vw; font-weight: 600; letter-spacing: -.035em; }
 .period-rain { display: block; margin-top: .26vw; font-size: 1vw; font-weight: 600; color: #d4eefb; }
@@ -168,7 +168,7 @@ h1 {
 
 @media (max-aspect-ratio: 4/3) {
   .clock, .weather-now { font-size: 4.6vw; }
-  .weather-periods { width: 68vw; }
+  .weather-periods { width: 44vw; }
   .period-time, .period-rain { font-size: 1.7vw; }
   .period-temperature { font-size: 2.35vw; }
   .period-icon { width: 2.45vw; height: 2.45vw; }

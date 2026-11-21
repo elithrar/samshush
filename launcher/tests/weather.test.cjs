@@ -171,7 +171,7 @@ test("four six-hour forecasts use the starting conditions and include rain throu
   hourly.showers[24] = 0.7; // Last hour of the 24-hour forecast.
   await h.respond(value);
   const rows = periods(h);
-  assert.deepEqual(rows.map(row => row.time), ["12 PM–6 PM", "6 PM–12 AM", "12 AM–6 AM", "6 AM–12 PM"]);
+  assert.deepEqual(rows.map(row => row.time), ["12 PM", "6 PM", "12 AM", "6 AM"]);
   assert.deepEqual(rows.map(row => row.temperature), ["10°", "16°", "22°", "28°"]);
   assert.deepEqual(rows.map(row => row.rain), ["2.3 mm rain", "Rain", undefined, "0.7 mm rain"]);
   assert.equal(rows[0].condition, "Clear");
@@ -183,8 +183,8 @@ test("four six-hour forecasts use the starting conditions and include rain throu
 
 test("windows span six elapsed hours across both local daylight-saving transitions", async t => {
   for (const [name, start, offset, expected] of [
-    ["spring forward", Date.UTC(2026, 2, 8, 5), -5, ["12 AM–7 AM", "7 AM–1 PM", "1 PM–7 PM", "7 PM–1 AM"]],
-    ["fall back", Date.UTC(2026, 10, 1, 4), -4, ["12 AM–5 AM", "5 AM–11 AM", "11 AM–5 PM", "5 PM–11 PM"]]
+    ["spring forward", Date.UTC(2026, 2, 8, 5), -5, ["12 AM", "7 AM", "1 PM", "7 PM"]],
+    ["fall back", Date.UTC(2026, 10, 1, 4), -4, ["12 AM", "5 AM", "11 AM", "5 PM"]]
   ]) {
     await t.test(name, async () => {
       const h = createWeather({ now: start + 15 * minute });
@@ -199,7 +199,7 @@ test("a location's quarter-hour UTC offset does not shift its forecast windows",
   const h = createWeather({ now: Date.UTC(2026, 5, 1, 6, 46) }); // 12:31 PM in Kathmandu.
   await h.configure();
   await h.respond(hourlyFixture(h.now, { timezone: "Asia/Kathmandu", offset: 5 * 3600 + 45 * 60 }));
-  assert.deepEqual(periods(h).map(row => row.time), ["12 PM–6 PM", "6 PM–12 AM", "12 AM–6 AM", "6 AM–12 PM"]);
+  assert.deepEqual(periods(h).map(row => row.time), ["12 PM", "6 PM", "12 AM", "6 AM"]);
 });
 
 test("an incomplete or unverifiable hourly update clears the strip while current and daily weather remain available", async t => {
