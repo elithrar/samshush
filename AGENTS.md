@@ -167,7 +167,7 @@ The widget refreshes Open-Meteo weather every ten minutes while visible. One HTT
 request supplies current conditions, today's high/low and 25 hourly timestamps.
 Starting with the current hour, Home groups the forecast into four six-hour
 columns. Each shows its local start hour, starting temperature and condition,
-and total liquid rain and showers for the six hours. Open-Meteo timestamps each
+and total liquid rain and showers in inches for the six hours. Open-Meteo timestamps each
 rain amount at the end of its hour. Incomplete hourly data hides the columns.
 Expired weather hides the whole display.
 `launchpad update` requires the previous signed widget, checks its installed

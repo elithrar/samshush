@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <view id="sun" viewBox="0 0 32 32"/>
+  <view id="moon" viewBox="32 0 32 32"/>
+  <view id="partly" viewBox="64 0 32 32"/>
+  <view id="nightPartly" viewBox="96 0 32 32"/>
+  <view id="cloud" viewBox="128 0 32 32"/>
+  <view id="fog" viewBox="160 0 32 32"/>
+  <view id="rain" viewBox="192 0 32 32"/>
+  <view id="snow" viewBox="224 0 32 32"/>
+  <view id="storm" viewBox="256 0 32 32"/>
+  <view id="drizzle" viewBox="288 0 32 32"/>
+  <view id="showers" viewBox="320 0 32 32"/>
+  <view id="drop" viewBox="352 0 32 32"/>
+
+  <defs>
+    <linearGradient id="sunlight" x2="0.2" y2="1">
+      <stop stop-color="#fff0a1"/>
+      <stop offset="1" stop-color="#ffbf45"/>
+    </linearGradient>
+    <linearGradient id="moonlight" x2="0.3" y2="1">
+      <stop stop-color="#f5f5ff"/>
+      <stop offset="1" stop-color="#c1ceff"/>
+    </linearGradient>
+    <linearGradient id="cloudlight" x2="0.15" y2="1">
+      <stop stop-color="#fff"/>
+      <stop offset="0.5" stop-color="#eff6fc"/>
+      <stop offset="1" stop-color="#b7ccdd"/>
+    </linearGradient>
+    <path id="cloudbank" fill="url(#cloudlight)" stroke="#e6f2fc" stroke-width="0.8"
+          d="M8.1 24.2c-3.4 0-5.9-2.5-5.9-5.6 0-3.2 2.5-5.7 5.7-5.8
+             0.7-4.1 3.9-6.9 7.9-6.9 3.8 0 7.1 2.5 8.1 6.1
+             3.3 0.1 6 2.7 6 6.1 0 3.5-2.7 6.1-6.4 6.1Z"/>
+    <path id="crescent" fill="url(#moonlight)" stroke="#e0e8ff" stroke-width="0.9" stroke-linejoin="round"
+          d="M19.3 3.4a12.4 12.4 0 0 0-3.4 9.7c0.6 6 5.7 10.3 11.8 10.1
+             -2.9 4.3-8.2 6.4-13.2 5.1C7.7 26.7 3.5 20.3 4.7 13.7
+             5.9 7.3 12.1 2.7 19.3 3.4Z"/>
+  </defs>
+
+  <g stroke="#ffe189" stroke-linecap="round">
+    <circle cx="16" cy="16" r="6.7" fill="url(#sunlight)" stroke-width="1.2"/>
+    <path fill="none" stroke-width="2.5"
+          d="M16 2.1v3.1m0 21.6v3.1M2.1 16h3.1m21.6 0h3.1
+             M6.2 6.2l2.2 2.2m15.2 15.2 2.2 2.2M6.2 25.8l2.2-2.2M23.6 8.4l2.2-2.2"/>
+  </g>
+  <g transform="translate(32)">
+    <use href="#crescent"/>
+    <path fill="#e2eaff" d="m25.1 4.8 1.2 3.1 3.1 1.2-3.1 1.2-1.2 3.1-1.2-3.1-3.1-1.2 3.1-1.2Z"/>
+  </g>
+  <g transform="translate(64)">
+    <circle cx="11" cy="12.7" r="5.6" fill="url(#sunlight)" stroke="#ffe189" stroke-width="1"/>
+    <path fill="none" stroke="#ffe189" stroke-width="2.1" stroke-linecap="round"
+          d="M11 2.1v2.5M3.5 5.2 5.4 7.1M1.3 12.7h2.3m.1 7.1 1.7-1.7M16.7 7l1.8-1.8"/>
+    <use href="#cloudbank" transform="translate(5.7 7.2) scale(0.84)"/>
+  </g>
+  <g transform="translate(96)">
+    <use href="#crescent" transform="translate(-1 0) scale(0.8)"/>
+    <path fill="#e2eaff" d="m20.6 3.4 1 2.5 2.5 1-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1Z"/>
+    <use href="#cloudbank" transform="translate(5.7 7.2) scale(0.84)"/>
+  </g>
+  <use href="#cloudbank" transform="translate(128 1)"/>
+  <g transform="translate(160)">
+    <use href="#cloudbank" transform="translate(2.1 -3) scale(0.87)"/>
+    <path fill="none" stroke="#d5e9f5" stroke-width="2.4" stroke-linecap="round"
+          d="M3.7 23h21.4M9.2 28h19"/>
+  </g>
+  <g transform="translate(192)">
+    <use href="#cloudbank" transform="translate(0 -3.8)"/>
+    <path fill="none" stroke="#9cdfff" stroke-width="2.8" stroke-linecap="round"
+          d="m9.6 23.7-2.4 5m10.2-5-2.4 5m10.2-5-2.4 5"/>
+  </g>
+  <g transform="translate(224)">
+    <use href="#cloudbank" transform="translate(1.8 -3.8) scale(0.89)"/>
+    <path fill="none" stroke="#c7f2ff" stroke-width="2.1" stroke-linecap="round"
+          d="M16 19.1v10.5m-4.55-7.88 9.1 5.26m-9.1 0 9.1-5.26"/>
+  </g>
+  <g transform="translate(256)">
+    <use href="#cloudbank" transform="translate(0 -2.7)"/>
+    <path fill="#ffcc52" stroke="#705432" stroke-width="0.9" stroke-linejoin="round"
+          d="M17.2 16.1h6.1l-4.7 6.4h4.8l-11 8.7 3.7-7.2h-5Z"/>
+  </g>
+  <g transform="translate(288)">
+    <use href="#cloudbank" transform="translate(0 -3.8)"/>
+    <g fill="#a9e4ff">
+      <circle cx="8.2" cy="24.2" r="1.6"/><circle cx="15.8" cy="26.9" r="1.6"/>
+      <circle cx="23.4" cy="24.2" r="1.6"/>
+    </g>
+  </g>
+  <g transform="translate(320)">
+    <use href="#cloudbank" transform="translate(1.4 -3.9) scale(0.91)"/>
+    <path fill="none" stroke="#9cdfff" stroke-width="2.4" stroke-linecap="round"
+          d="m9.1 21.6-1.7 3.1m9.5-3.1-1.7 3.1m9.5-3.1L23 24.7m-10.7 2.1-1.6 2.9m9.5-2.9-1.6 2.9"/>
+  </g>
+  <path transform="translate(352)" fill="#aadfff" stroke="#d0efff" stroke-width="1"
+        d="M16 1.8c-2.5 4.1-10 12.7-10 18.3a10 10 0 0 0 20 0C26 14.5 18.5 5.9 16 1.8Z"/>
+</svg>

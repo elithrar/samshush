@@ -109,6 +109,7 @@ class LaunchpadTests(unittest.TestCase):
             "sources.js": b"window.testSources = true;",
             "microphone.js": b"window.testMicrophone = true;",
             "weather.js": b"window.testWeather = true;",
+            "weather-icons.svg": b'<svg xmlns="http://www.w3.org/2000/svg"/>',
             "icon.png": b"\x89PNG\r\n\x1a\nfixture",
             "water-lilies.jpg": b"\xff\xd8\xff\xd9fixture",
             launchpad.WEATHER_CONFIG: b"{}\n",
@@ -238,7 +239,16 @@ class LaunchpadTests(unittest.TestCase):
         identity, files = launchpad.signed_widget_resources(self.widget, previous=True)
         self.assertEqual(identity.app, "Gxqk7W2na5.Shortcuts")
         self.assertEqual(files, previous)
-        before_microphone = self.resources.copy()
+        before_icons = self.resources.copy()
+        del before_icons["weather-icons.svg"]
+        write_widget(self.widget, signed_members(before_icons))
+        self.assertEqual(
+            launchpad.signed_widget_resources(self.widget, previous=True)[1],
+            before_icons,
+        )
+        with self.assertRaisesRegex(ValueError, "missing, duplicate or unexpected"):
+            launchpad.verify_widget(self.widget, self.source)
+        before_microphone = before_icons.copy()
         del before_microphone["microphone.js"]
         before_microphone["config.xml"] = SCHEDULE_MANIFEST
         write_widget(self.widget, signed_members(before_microphone))
@@ -265,6 +275,8 @@ class LaunchpadTests(unittest.TestCase):
             self.resources | {"config.xml": LEGACY_MANIFEST},
             self.resources | {"config.xml": WEATHER_MANIFEST},
             weather | {"config.xml": MANIFEST},
+            before_microphone
+            | {"weather-icons.svg": self.resources["weather-icons.svg"]},
         ):
             write_widget(self.widget, signed_members(changed))
             with self.subTest(resources=list(changed)), self.assertRaises(ValueError):

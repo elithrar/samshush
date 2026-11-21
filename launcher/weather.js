@@ -24,30 +24,16 @@
   var conditions = {
     0: ["Clear", "sun"], 1: ["Mostly clear", "sun"], 2: ["Partly cloudy", "partly"],
     3: ["Overcast", "cloud"], 45: ["Fog", "fog"], 48: ["Freezing fog", "fog"],
-    51: ["Light drizzle", "rain"], 53: ["Drizzle", "rain"], 55: ["Heavy drizzle", "rain"],
-    56: ["Freezing drizzle", "rain"], 57: ["Freezing drizzle", "rain"],
+    51: ["Light drizzle", "drizzle"], 53: ["Drizzle", "drizzle"], 55: ["Heavy drizzle", "drizzle"],
+    56: ["Freezing drizzle", "drizzle"], 57: ["Freezing drizzle", "drizzle"],
     61: ["Light rain", "rain"], 63: ["Rain", "rain"], 65: ["Heavy rain", "rain"],
     66: ["Freezing rain", "rain"], 67: ["Freezing rain", "rain"],
     71: ["Light snow", "snow"], 73: ["Snow", "snow"], 75: ["Heavy snow", "snow"],
-    77: ["Snow grains", "snow"], 80: ["Rain showers", "rain"],
-    81: ["Rain showers", "rain"], 82: ["Heavy rain showers", "rain"],
+    77: ["Snow grains", "snow"], 80: ["Rain showers", "showers"],
+    81: ["Rain showers", "showers"], 82: ["Heavy rain showers", "showers"],
     85: ["Snow showers", "snow"], 86: ["Heavy snow showers", "snow"],
     95: ["Thunderstorm", "storm"], 96: ["Thunderstorm with hail", "storm"],
     97: ["Heavy thunderstorm", "storm"], 99: ["Thunderstorm with hail", "storm"]
-  };
-  var cloud = '<path d="M8 22a5 5 0 1 1 .6-10A7 7 0 0 1 22 11a5.5 5.5 0 1 1 1 11H8Z"/>';
-  var sun = '<circle cx="16" cy="16" r="6"/><path d="M16 3v3m0 20v3M3 16h3m20 0h3M6.8 6.8l2.1 2.1m14.2 14.2 2.1 2.1M6.8 25.2l2.1-2.1M23.1 8.9l2.1-2.1"/>';
-  var moon = '<path d="M24.6 21.8A11 11 0 0 1 10.2 7.4 11 11 0 1 0 24.6 21.8Z"/>';
-  var symbols = {
-    sun: sun,
-    moon: moon,
-    cloud: cloud,
-    partly: '<g transform="translate(-1 -2) scale(.75)">' + sun + '</g>' + cloud,
-    nightPartly: '<g transform="translate(-1 -3) scale(.8)">' + moon + '</g>' + cloud,
-    rain: '<g transform="translate(0 -3)">' + cloud + '</g><path d="m10 23-2 4m9-4-2 4m9-4-2 4"/>',
-    snow: '<g transform="translate(0 -4)">' + cloud + '</g><path d="M10 24v5m-2.2-3.8 4.4 2.6m0-2.6-4.4 2.6M22 24v5m-2.2-3.8 4.4 2.6m0-2.6-4.4 2.6"/>',
-    storm: '<g transform="translate(0 -4)">' + cloud + '</g><path d="m17 19-5 6h5l-2 5 7-8h-5l2-3"/>',
-    fog: '<g transform="translate(0 -5)">' + cloud + '</g><path d="M6 23h20M9 28h14"/>'
   };
 
   function finite(value, min, max) {
@@ -91,12 +77,13 @@
       for (var i = start; i < start + 6; i++) {
         // Open-Meteo reports rain and showers for the hour ending at each timestamp.
         var rain = h.rain[i + 1], showers = h.showers[i + 1];
-        if (!validCode(h.weather_code[i]) || !finite(rain, 0, 2000) || !finite(showers, 0, 2000)) return [];
+        var code = h.weather_code[i];
+        if (!validCode(code) || !finite(rain, 0, 2000) || !finite(showers, 0, 2000)) return [];
         total += rain + showers;
-        if (conditions[h.weather_code[i]][1] === "rain") wet = true;
+        if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) wet = true;
       }
       result.push({ start: hour.format(h.time[start] * 1000).replace(/\s+/g, " "), temperature: h.temperature_2m[start],
-        code: h.weather_code[start], day: h.is_day[start], rain: total, wet: wet });
+        code: h.weather_code[start], day: h.is_day[start], rainMm: total, wet: wet });
     }
     return result;
   }
@@ -214,23 +201,24 @@
     }
   }
 
-  function symbolFor(code, day) {
+  function iconURL(code, day) {
     var symbol = conditions[code][1];
-    if (!day && symbol === "sun") return symbols.moon;
-    if (!day && symbol === "partly") return symbols.nightPartly;
-    return symbols[symbol];
+    if (!day && symbol === "sun") symbol = "moon";
+    if (!day && symbol === "partly") symbol = "nightPartly";
+    return "weather-icons.svg#" + symbol;
   }
 
   function renderPeriod(period) {
-    var amount = Math.round(period.rain * 10) / 10;
-    var rain = "";
-    if (amount > 0) rain = amount + " mm rain";
-    else if (period.rain > 0) rain = "Trace rain";
-    else if (period.wet) rain = "Rain";
+    var rain = period.wet ? "Rain" : "";
+    if (period.rainMm > 0) {
+      var inches = (period.rainMm / 25.4).toFixed(2);
+      rain = inches === "0.00" ? "Trace rain" :
+        '<img class="rain-drop" src="weather-icons.svg#drop" alt="Rain"> ' + inches + " in";
+    }
     var label = conditions[period.code][0] + (period.day ? "" : " at night");
     return '<li class="weather-period"><span class="period-time">' + period.start + '</span>' +
-      '<span class="period-conditions"><svg class="weather-icon period-icon" viewBox="0 0 32 32" role="img" aria-label="' +
-      label + '">' + symbolFor(period.code, period.day) + '</svg><span class="period-temperature">' +
+      '<span class="period-conditions"><img class="weather-icon period-icon" src="' +
+      iconURL(period.code, period.day) + '" alt="' + label + '"><span class="period-temperature">' +
       Math.round(period.temperature) + '°</span></span>' +
       (rain ? '<span class="period-rain">' + rain + '</span>' : '') + '</li>';
   }
@@ -238,10 +226,8 @@
   function render(weather) {
     var condition = conditions[weather.code];
     current.textContent = Math.round(weather.temperature) + "°C";
-    icon.setAttribute("viewBox", "0 0 32 32");
-    icon.setAttribute("role", "img");
-    icon.setAttribute("aria-label", condition[0] + (weather.day === 0 ? " at night" : ""));
-    icon.innerHTML = symbolFor(weather.code, weather.day);
+    icon.alt = condition[0] + (weather.day === 0 ? " at night" : "");
+    icon.src = iconURL(weather.code, weather.day);
     forecast.textContent = conditions[weather.dailyCode][0] + " · H " + Math.round(weather.high) + "°  L " + Math.round(weather.low) + "°";
     forecast.setAttribute("aria-label", "Today: " + conditions[weather.dailyCode][0] + ", high " +
       Math.round(weather.high) + ", low " + Math.round(weather.low) + " degrees Celsius");

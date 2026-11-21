@@ -19,7 +19,7 @@ Weather data is provided under Creative Commons Attribution 4.0 (CC BY 4.0):
 https://creativecommons.org/licenses/by/4.0/
 https://open-meteo.com/en/licence
 The app rounds Celsius values, maps WMO codes to condition labels and icons,
-and sums hourly rain and showers for each six-hour forecast.
+and converts each six-hour total of rain and showers to inches.
 
 Optional postcode lookup: Zippopotam.us, https://www.zippopotam.us/
 The lookup uses GeoNames postal data, https://www.geonames.org/, under CC BY 4.0.

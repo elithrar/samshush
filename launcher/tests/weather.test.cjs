@@ -43,9 +43,9 @@ function periods(h) {
   const rows = [...strip.innerHTML.matchAll(/<li\b[^>]*\bclass="weather-period"[^>]*>([\s\S]*?)<\/li>/g)];
   assert.equal(rows.length, 4);
   return rows.map(([, row]) => {
-    const field = name => row.match(new RegExp(`class="period-${name}"[^>]*>([^<]+)<`))?.[1];
+    const field = name => row.match(new RegExp(`class="period-${name}"[^>]*>(?:<img[^>]*>\\s*)?([^<]+)<`))?.[1];
     return { time: field("time"), temperature: field("temperature"), rain: field("rain"),
-      condition: row.match(/<svg\b[^>]*\baria-label="([^"]+)"/)?.[1] };
+      condition: row.match(/<img\b[^>]*\bclass="weather-icon period-icon"[^>]*\balt="([^"]+)"/)?.[1] };
   });
 }
 
@@ -151,8 +151,8 @@ test("local configuration is bounded, supports packaged file URLs, and exposes n
   assert.equal(h.logs.length, 0);
   assert.equal(h.elements["weather-current"].textContent, "17°C");
   assert.equal(h.elements["weather-forecast"].textContent, "Light rain · H 19°  L 12°");
-  assert.equal(h.elements["weather-icon"].attributes["aria-label"], "Light rain");
-  assert.match(h.elements["weather-icon"].innerHTML, /<path/);
+  assert.equal(h.elements["weather-icon"].alt, "Light rain");
+  assert.equal(h.elements["weather-icon"].src, "weather-icons.svg#rain");
 });
 
 test("four six-hour forecasts use the starting conditions and include rain throughout each window", async () => {
@@ -173,12 +173,25 @@ test("four six-hour forecasts use the starting conditions and include rain throu
   const rows = periods(h);
   assert.deepEqual(rows.map(row => row.time), ["12 PM", "6 PM", "12 AM", "6 AM"]);
   assert.deepEqual(rows.map(row => row.temperature), ["10°", "16°", "22°", "28°"]);
-  assert.deepEqual(rows.map(row => row.rain), ["2.3 mm rain", "Rain", undefined, "0.7 mm rain"]);
+  assert.deepEqual(rows.map(row => row.rain), ["0.09 in", "Rain", undefined, "0.03 in"]);
   assert.equal(rows[0].condition, "Clear");
   assert.equal(rows[1].condition, "Partly cloudy");
   assert.match(rows[2].condition, /clear.*night/i);
   assert.equal(h.elements["weather-current"].textContent, "17°C");
   assert.equal(h.elements["weather-forecast"].textContent, "Light rain · H 19°  L 12°");
+});
+
+test("rain totals convert to hundredths of an inch after summing the six hours", async () => {
+  const h = createWeather();
+  await h.configure();
+  const value = hourlyFixture(h.now);
+  value.hourly.rain[1] = 0.1; // Below half a hundredth of an inch.
+  value.hourly.showers[7] = 0.1;
+  value.hourly.rain[8] = 0.1; // Together the two hours round to 0.01 in.
+  value.hourly.rain[13] = 25.4;
+  value.hourly.weather_code[19] = 80; // Showers without a measurable amount.
+  await h.respond(value);
+  assert.deepEqual(periods(h).map(row => row.rain), ["Trace rain", "0.01 in", "1.00 in", "Rain"]);
 });
 
 test("windows span six elapsed hours across both local daylight-saving transitions", async t => {
@@ -443,8 +456,11 @@ test("malformed, wrong-unit, stale and unknown-code responses remain hidden", as
 });
 
 test("weather codes select accessible day/night symbols, including the current storm code", async t => {
-  for (const [code, day, label] of [[0, 0, "Clear at night"], [2, 0, "Partly cloudy at night"],
-    [3, 1, "Overcast"], [45, 1, "Fog"], [75, 1, "Heavy snow"], [97, 1, "Heavy thunderstorm"]]) {
+  for (const [code, day, label, view] of [[0, 1, "Clear", "sun"], [0, 0, "Clear at night", "moon"],
+    [2, 1, "Partly cloudy", "partly"], [2, 0, "Partly cloudy at night", "nightPartly"],
+    [3, 1, "Overcast", "cloud"], [45, 1, "Fog", "fog"], [51, 1, "Light drizzle", "drizzle"],
+    [61, 1, "Light rain", "rain"], [80, 1, "Rain showers", "showers"],
+    [75, 1, "Heavy snow", "snow"], [97, 1, "Heavy thunderstorm", "storm"]]) {
     await t.test(label, async () => {
       const h = createWeather();
       await h.configure();
@@ -453,9 +469,8 @@ test("weather codes select accessible day/night symbols, including the current s
       value.current.is_day = day;
       await h.respond(value);
       assert.equal(h.elements.weather.hidden, false);
-      assert.equal(h.elements["weather-icon"].attributes["aria-label"], label);
-      assert.equal(h.elements["weather-icon"].attributes.role, "img");
-      assert.match(h.elements["weather-icon"].innerHTML, /<path/);
+      assert.equal(h.elements["weather-icon"].alt, label);
+      assert.equal(h.elements["weather-icon"].src, "weather-icons.svg#" + view);
     });
   }
 });

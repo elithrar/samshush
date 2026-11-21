@@ -38,7 +38,8 @@ WEATHER_RESOURCES = (
 )
 SCHEDULE_RESOURCES = WEATHER_RESOURCES + ("time-controls.js",)
 SOURCE_NAME_RESOURCES = SCHEDULE_RESOURCES + ("sources.js",)
-RESOURCES = SOURCE_NAME_RESOURCES + ("microphone.js",)
+MICROPHONE_RESOURCES = SOURCE_NAME_RESOURCES + ("microphone.js",)
+RESOURCES = MICROPHONE_RESOURCES + ("weather-icons.svg",)
 WEATHER_CONFIG = "weather-config.json"
 WEATHER_ORIGIN = "https://api.open-meteo.com"
 LEGACY_RESOURCES = tuple(name for name in WEATHER_RESOURCES if name != "weather.js")
@@ -244,6 +245,7 @@ def signed_widget_resources(path, source=SOURCE, *, previous=False):
                     WEATHER_RESOURCES + (WEATHER_CONFIG,),
                     SCHEDULE_RESOURCES + (WEATHER_CONFIG,),
                     SOURCE_NAME_RESOURCES + (WEATHER_CONFIG,),
+                    MICROPHONE_RESOURCES + (WEATHER_CONFIG,),
                 ):
                     if set(names) == set(old + SIGNATURES):
                         resources = old
